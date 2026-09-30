@@ -42,10 +42,13 @@ rm -f "$OUT"
 "$LHACLI" lha create "$OUT" "$STAGE" >/dev/null
 cp docs/amifleet68.readme "dist/amifleet68-$VER.readme"
 
-# Unpack and compare every file.
+# Unpack and compare every file - with AmigaDiskKit's extractor, NOT
+# Homebrew's lha (Lhasa): the writer stores subdirectories as level-0 names
+# with 0xFF separators, which Lhasa fails on ("Failure") while the Amiga's
+# own C:lha extracts them cleanly (checked on the A4000, 2026-09-30).
 CHK=dist/check
 rm -rf "$CHK"; mkdir -p "$CHK"
-(cd "$CHK" && lha xq "../amifleet68-$VER.lha")
+"$LHACLI" lha extract "$OUT" "$CHK" >/dev/null
 ( cd "$STAGE" && find . -type f ) | while read -r f; do
     cmp -s "$STAGE/$f" "$CHK/$f" || { echo "MISMATCH in archive: $f"; exit 1; }
 done
@@ -53,5 +56,5 @@ strings "$CHK/amifleet68/amifleet68" | grep -q "\$VER: amifleet68 $VER " || { ec
 rm -rf "$CHK"
 
 echo "$OUT  ($(wc -c < "$OUT" | tr -d ' ') bytes, $VER)"
-lha l "$OUT" | tail -n +2
+"$LHACLI" lha extract "$OUT" /dev/null 2>/dev/null | head -1 || true
 shasum -a 256 "$OUT"
