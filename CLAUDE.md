@@ -21,7 +21,7 @@ See README.md for the architecture.
 
 - **Test on the fleet, not by reasoning** — use the `amiga-fleet` skill;
   claim the machine (`fleet.py A4000 --claim --as <name>`) before driving its
-  GUI. Quit a running copy with ARexx: `address 'AMIFLEET.1'; 'quit'`.
+  GUI. Quit a running copy with ARexx: `address 'AMIFLEET68.1'; 'quit'`.
 - `src/worker.c` and `src/vnc.c` run on separate processes: **no malloc, no
   stdio** there. Exec/dos/bsdsocket only.
 - **Test VNC against `tests/fake_amivnc.py` first**, not a real AmiVNC: the

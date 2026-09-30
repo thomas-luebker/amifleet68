@@ -20,8 +20,8 @@
 #include <dos/dosextens.h>
 #include <exec/semaphores.h>
 
-#define AMIFLEET_VERSION "0.4.1"
-#define AMIFLEET_VERDATE "30.9.2026"
+#define AMIFLEET_VERSION "0.5.0"
+#define AMIFLEET_VERDATE "1.10.2026"
 
 #define AGENT_PORT 7846
 
@@ -118,6 +118,8 @@ struct CopySpec {
     volatile ULONG files, bytes;    /* done so far */
     volatile UBYTE cancel;
     UBYTE same;                     /* worker: both ends are one agent */
+    UBYTE move;                     /* delete each source item once it is copied */
+    volatile ULONG moved;           /* items deleted at the source */
     char  current[108];
     char  err[160];
 };

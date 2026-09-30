@@ -372,15 +372,65 @@ static void job_get(struct Worker *wk, struct Job *j)
     j->ms = now_ms(wk) - t0;
 }
 
-/* Upload j->local to remote path j->arg: one PUT frame, streamed from disk
- * so the file never sits in memory. The protocol caps a frame at 16 MiB. */
+/* Upload j->local to remote path j->arg, streamed from disk so the file never
+ * sits in memory. One PUT frame is capped at 16 MiB, so a bigger file goes
+ * up in 8 MB parts beside the target that the Amiga Joins (the copier does
+ * the same between machines). */
+static LONG wexec(struct Worker *wk, struct Job *t, const char *cmd, UWORD deadline);
+static void qcat(char *d, const char *arg, ULONG n);
+static void cat(char *d, const char *s, ULONG n);
+static void num(char *d, ULONG v, ULONG n);
+
+#define PUT_PART   (8UL * 1024UL * 1024UL)
+#define PUT_SINGLE (15UL * 1024UL * 1024UL)
+
+/* One PUT of [off, off+len) of the open file fh to remote path dst. */
+static int put_local(struct Worker *wk, struct Job *j, BPTR fh, UBYTE *buf,
+                     ULONG off, ULONG len, const char *dst, ULONG *done)
+{
+    struct Job t = *j;
+    ULONG n = slen(dst), sent = 0, t0 = now_ms(wk);
+    UBYTE h[AMI_HDRLEN + 2];
+    LONG s;
+
+    t.out = NULL; t.outlen = 0; t.err[0] = 0;
+    if ((s = agent_open(wk, &t, 20000)) < 0) { j->status = t.status; scopy(j->err, t.err, sizeof j->err); return 0; }
+    h[0] = AMI_MAGIC0; h[1] = AMI_MAGIC1; h[2] = AMI_MAGIC2; h[3] = AMI_MAGIC3;
+    h[4] = CMD_PUT; h[5] = 0; h[6] = 0; h[7] = 0;
+    put_be32(h + 8, 2 + n + len);
+    h[12] = (UBYTE)(n >> 8); h[13] = (UBYTE)n;
+    Seek(fh, (LONG)off, OFFSET_BEGINNING);
+    if (!send_all(wk, s, h, sizeof h) || !send_all(wk, s, (const UBYTE *)dst, n)) goto broken;
+    while (sent < len) {
+        LONG got = Read(fh, buf, (LONG)(len - sent > XFER_CHUNK ? XFER_CHUNK : len - sent));
+        if (got <= 0) {
+            /* The frame length is promised; a short file cannot be undone. */
+            CloseSocket(s);
+            fail(j, JS_ERR, "read error on ", j->local);
+            return 0;
+        }
+        if (g_quitting || !send_all(wk, s, buf, (ULONG)got)) goto broken;
+        sent += (ULONG)got;
+        *done += (ULONG)got;
+        j->done = *done;
+    }
+    agent_finish(wk, &t, s, t0, 60000);
+    if (t.out) FreeVec(t.out);
+    if (t.status != JS_OK) { j->status = t.status; scopy(j->err, t.err, sizeof j->err); return 0; }
+    return 1;
+
+broken:
+    CloseSocket(s);
+    fail(j, g_quitting ? JS_CANCEL : JS_NET, "connection dropped during the upload", NULL);
+    return 0;
+}
+
 static void job_put(struct Worker *wk, struct Job *j)
 {
-    ULONG t0 = now_ms(wk), n = slen(j->arg), size, sent = 0;
-    UBYTE h[AMI_HDRLEN + 2];
+    ULONG t0 = now_ms(wk), size, done = 0;
     UBYTE *buf;
     BPTR fh;
-    LONG s;
+    int ok = 1;
 
     j->done = 0;
     fh = Open((STRPTR)j->local, MODE_OLDFILE);
@@ -388,42 +438,44 @@ static void job_put(struct Worker *wk, struct Job *j)
     Seek(fh, 0, OFFSET_END);
     size = (ULONG)Seek(fh, 0, OFFSET_BEGINNING);
     j->total = size;
-    if (size + n + 2 > AMI_MAXFRAME) {
-        Close(fh);
-        fail(j, JS_ERR, "too big for one transfer (16 MB limit)", NULL);
-        return;
-    }
     buf = (UBYTE *)AllocVec(XFER_CHUNK, MEMF_ANY);
     if (!buf) { Close(fh); fail(j, JS_ERR, "out of memory", NULL); return; }
-
     j->out = NULL; j->outlen = 0; j->err[0] = 0;
-    if ((s = agent_open(wk, j, 20000)) < 0) { FreeVec(buf); Close(fh); return; }
 
-    h[0] = AMI_MAGIC0; h[1] = AMI_MAGIC1; h[2] = AMI_MAGIC2; h[3] = AMI_MAGIC3;
-    h[4] = CMD_PUT; h[5] = 0; h[6] = 0; h[7] = 0;
-    put_be32(h + 8, 2 + n + size);
-    h[12] = (UBYTE)(n >> 8); h[13] = (UBYTE)n;
-    if (!send_all(wk, s, h, sizeof h) || !send_all(wk, s, (const UBYTE *)j->arg, n)) goto broken;
-    while (sent < size) {
-        LONG got = Read(fh, buf, (LONG)(size - sent > XFER_CHUNK ? XFER_CHUNK : size - sent));
-        if (got <= 0) {
-            /* The frame length is promised; a short file cannot be undone. */
-            CloseSocket(s); FreeVec(buf); Close(fh);
-            fail(j, JS_ERR, "read error on ", j->local);
-            return;
+    if (size <= PUT_SINGLE) {
+        ok = put_local(wk, j, fh, buf, 0, size, j->arg, &done);
+    } else {
+        ULONG parts = (size + PUT_PART - 1) / PUT_PART, i;
+        char part[320], cmd[2048];
+        for (i = 0; i < parts && ok; i++) {
+            scopy(part, j->arg, sizeof part); cat(part, ".amifleet-part", sizeof part); num(part, i, sizeof part);
+            ok = put_local(wk, j, fh, buf, i * PUT_PART,
+                           size - i * PUT_PART > PUT_PART ? PUT_PART : size - i * PUT_PART, part, &done);
         }
-        if (g_quitting || !send_all(wk, s, buf, (ULONG)got)) goto broken;
-        sent += (ULONG)got;
-        j->done = sent;
+        if (ok) {
+            struct Job t = *j;
+            scopy(cmd, "Join", sizeof cmd);
+            for (i = 0; i < parts; i++) {
+                scopy(part, j->arg, sizeof part); cat(part, ".amifleet-part", sizeof part); num(part, i, sizeof part);
+                qcat(cmd, part, sizeof cmd);
+            }
+            cat(cmd, " AS", sizeof cmd);
+            qcat(cmd, j->arg, sizeof cmd);
+            if (wexec(wk, &t, cmd, 600) != 0) { ok = 0; fail(j, JS_ERR, "Join failed: ", t.err); }
+        }
+        {   /* the parts go either way */
+            struct Job t = *j;
+            scopy(cmd, "Delete", sizeof cmd);
+            scopy(part, j->arg, sizeof part); cat(part, ".amifleet-part#?", sizeof part);
+            qcat(cmd, part, sizeof cmd);
+            cat(cmd, " QUIET", sizeof cmd);
+            wexec(wk, &t, cmd, 60);
+        }
     }
     FreeVec(buf);
     Close(fh);
-    agent_finish(wk, j, s, t0, 60000);
-    return;
-
-broken:
-    CloseSocket(s); FreeVec(buf); Close(fh);
-    fail(j, g_quitting ? JS_CANCEL : JS_NET, "connection dropped during the upload", NULL);
+    if (ok) j->status = JS_OK;
+    j->ms = now_ms(wk) - t0;
 }
 
 /* ------------------------------------------------------------------ *
@@ -849,6 +901,7 @@ static void job_copy(struct Worker *wk, struct Job *j)
 
     for (i = 0; i < cs->n && ok; i++) {
         char src[300], dst[300];
+        ULONG files_before = cs->files;
         wjoin(src, cs->srcdir, cs->name[i], sizeof src);
         wjoin(dst, cs->dstdir, cs->name[i], sizeof dst);
         if (cs->same) {
@@ -867,6 +920,19 @@ static void job_copy(struct Worker *wk, struct Job *j)
         } else {
             ok = copy_item(&c, src, dst, cs->isdir[i], cs->size[i]);
         }
+        /* Move: the original goes only after ITS copy finished without an
+         * error - never after a partial one. */
+        if (ok && cs->move && !stopped(&c)) {
+            struct Job t = c.src;
+            char cmd[400];
+            scopy(cmd, "Delete", sizeof cmd);
+            qcat(cmd, src, sizeof cmd);
+            cat(cmd, cs->isdir[i] ? " ALL QUIET FORCE" : " QUIET FORCE", sizeof cmd);
+            if (wexec(wk, &t, cmd, 600) != 0)
+                ok = fail_at(&c, "copied, but could not delete the original ", src, t.err);
+            else cs->moved++;
+        }
+        (void)files_before;
     }
     j->status = ok ? JS_OK : (cs->cancel ? JS_CANCEL : JS_ERR);
     if (j->status == JS_CANCEL && !g_quitting) j->status = JS_ERR;   /* show the message */

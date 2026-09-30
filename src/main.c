@@ -36,6 +36,7 @@
 #include <exec/types.h>
 #include <exec/memory.h>
 #include <dos/dos.h>
+#include <dos/dostags.h>
 #include <devices/timer.h>
 #include <libraries/mui.h>
 #include <utility/hooks.h>
@@ -142,7 +143,10 @@ static int   g_nmach = 0;
 static ULONG g_next_id = 1;
 
 static struct Worker w_poll, w_shell, w_misc, w_screen, w_vnc;
-static int g_paltest = 0;       /* "amifleet68 PALTEST": all windows on 640x256 */
+static int g_paltest = 0;       /* PALTEST 640x256 / NTSCTEST 640x200: all windows on it */
+static int g_testh = 256;
+static char g_pubscreen[64];    /* PUBSCREEN= (Shell argument or icon tool type) */
+static Object *mi_edit, *mi_remove, *mi_details, *mi_screen, *mi_vnc;
 static struct MsgPort *g_reply = NULL;
 static int   g_outstanding = 0;
 
@@ -185,6 +189,7 @@ static int   g_nfiles = 0;
 static char  g_files_path[256] = "SYS:";
 static char  g_files_pending[256] = "";
 static struct Job *g_xfer = NULL;      /* the GET/PUT in flight, for progress */
+static char  g_files_note[200];        /* shown instead of the entry count once */
 static char  g_local_dir[256] = "RAM:";
 
 /* ------------------------------------------------------------------ *
@@ -202,6 +207,8 @@ static Object *bt_screen, *bt_vnc, *bt_copy;
 static Object *win_copy, *bt_cp_right, *bt_cp_left, *bt_cp_del, *bt_cp_ren, *bt_cp_mkd,
               *bt_cp_ref, *bt_cp_cancel, *txt_cp;
 static Object *win_ask, *txt_ask, *str_ask, *bt_ask_ok, *bt_ask_cancel;
+static Object *chk_move;
+static Object *pop_hist, *lv_hist, *lst_hist;
 static Object *win_scr, *txt_scr, *view_scr, *chk_live, *bt_scr_refresh;
 static Object *win_vnc, *txt_vnc, *view_vnc, *str_vncpw, *chk_fast, *bt_vnc_go, *bt_vnc_stop;
 
@@ -459,6 +466,13 @@ static void update_buttons(void)
     set(bt_details, MUIA_Disabled, !sel);
     set(bt_screen, MUIA_Disabled, !sel);
     set(bt_vnc, MUIA_Disabled, !sel);
+    /* Style guide: what cannot be chosen is ghosted - menus too. */
+    {
+        Object *mis[] = { mi_edit, mi_remove, mi_details, mi_screen, mi_vnc };
+        unsigned k;
+        for (k = 0; k < sizeof mis / sizeof mis[0]; k++)
+            if (mis[k]) set(mis[k], MUIA_Menuitem_Enabled, sel);
+    }
     set(bt_copy, MUIA_Disabled, !g_nmach);
 }
 
@@ -549,7 +563,7 @@ static void detail_open(struct Machine *m)
     if (g_detail_mid != m->id) {
         g_detail_mid = m->id;
         DoMethod(lst_shell, MUIM_List_Clear);
-        set(txt_shell, MUIA_Text_Contents, (ULONG)"Runs through the agent's EXEC (20 s, then Break).");
+        set(txt_shell, MUIA_Text_Contents, (ULONG)"Runs through the agent's EXEC (20 s, then Stop).");
         DoMethod(lst_files, MUIM_List_Clear);
         g_nfiles = 0;
         set(txt_files, MUIA_Text_Contents, (ULONG)"");
@@ -666,7 +680,9 @@ static void files_fill(struct Job *j)
     set(lst_files, MUIA_List_Quiet, FALSE);
     snprintf(b, sizeof b, "%d entr%s in %s  (%lu ms)", n, n == 1 ? "y" : "ies",
              g_files_path, (unsigned long)j->ms);
-    set(txt_files, MUIA_Text_Contents, (ULONG)b);
+    /* A finished upload's result outlives the refresh it triggered. */
+    set(txt_files, MUIA_Text_Contents, (ULONG)(g_files_note[0] ? g_files_note : b));
+    g_files_note[0] = 0;
 }
 
 static void files_join(char *d, size_t n, const char *dir, const char *name)
@@ -795,7 +811,10 @@ static void xfer_reply(struct Job *j)
                  j->type == JOB_GET ? "Saved" : "Uploaded", j->type == JOB_GET ? j->local : j->arg,
                  kb, ms / 1000, ms % 1000 / 100, (unsigned long)(kb * 1000 / ms));
         set(txt_files, MUIA_Text_Contents, (ULONG)b);
-        if (j->type == JOB_PUT && j->mid == g_detail_mid) files_request(g_files_path);
+        if (j->type == JOB_PUT && j->mid == g_detail_mid) {
+            scpy(g_files_note, b, sizeof g_files_note);
+            files_request(g_files_path);
+        }
     } else {
         sanitize(e, sizeof e, j->err, strlen(j->err));
         snprintf(b, sizeof b, "\033b%s failed:\033n %s", j->type == JOB_GET ? "Download" : "Upload", e);
@@ -804,6 +823,99 @@ static void xfer_reply(struct Job *j)
 }
 
 
+
+
+/* ------------------------------------------------------------------ *
+ * Shell history: a popup of recent commands beside the command field -
+ * the MUI way to offer earlier values (the style guide's "popup button
+ * beside the string gadget"), rather than a hidden cursor-key trick.
+ * Kept in ENVARC:amifleet68.history, newest first.
+ * ------------------------------------------------------------------ */
+
+#define HIST_MAX 40
+#define HIST_ENV    "ENV:amifleet68.history"
+#define HIST_ENVARC "ENVARC:amifleet68.history"
+static char g_hist[HIST_MAX][256];
+static int  g_nhist = 0;
+static struct Hook hist_strobj, hist_objstr;
+
+static void hist_load(void)
+{
+    FILE *fp = fopen(HIST_ENV, "r");
+    char line[256];
+    if (!fp) fp = fopen(HIST_ENVARC, "r");
+    if (!fp) return;
+    while (g_nhist < HIST_MAX && fgets(line, sizeof line, fp)) {
+        line[strcspn(line, "\r\n")] = 0;
+        if (line[0]) scpy(g_hist[g_nhist++], line, sizeof g_hist[0]);
+    }
+    fclose(fp);
+}
+
+static void hist_save(void)
+{
+    const char *files[] = { HIST_ENV, HIST_ENVARC };
+    int f, i;
+    for (f = 0; f < 2; f++) {
+        FILE *fp = fopen(files[f], "w");
+        if (!fp) continue;
+        for (i = 0; i < g_nhist; i++) fprintf(fp, "%s\n", g_hist[i]);
+        fclose(fp);
+    }
+}
+
+static void hist_add(const char *cmd)
+{
+    int i, j;
+    for (i = 0; i < g_nhist; i++)
+        if (!strcmp(g_hist[i], cmd)) break;          /* already there: move up */
+    if (i == g_nhist) { if (g_nhist < HIST_MAX) g_nhist++; i = g_nhist - 1; }
+    for (j = i; j > 0; j--) memcpy(g_hist[j], g_hist[j - 1], sizeof g_hist[0]);
+    scpy(g_hist[0], cmd, sizeof g_hist[0]);
+    hist_save();
+}
+
+static LONG hist_strobj_func(struct Hook *h, Object *lst, Object *str)
+{
+    int i;
+    (void)h; (void)str; (void)lst;
+    set(lst_hist, MUIA_List_Quiet, TRUE);
+    DoMethod(lst_hist, MUIM_List_Clear);
+    for (i = 0; i < g_nhist; i++)
+        DoMethod(lst_hist, MUIM_List_InsertSingle, (ULONG)g_hist[i], MUIV_List_Insert_Bottom);
+    set(lst_hist, MUIA_List_Quiet, FALSE);
+    set(lst_hist, MUIA_List_Active, g_nhist ? 0 : MUIV_List_Active_Off);
+    return g_nhist > 0;             /* nothing to pop up yet */
+}
+
+static void hist_objstr_func(struct Hook *h, Object *lst, Object *str)
+{
+    char *c = NULL;
+    (void)h; (void)lst;
+    DoMethod(lst_hist, MUIM_List_GetEntry, MUIV_List_GetEntry_Active, (ULONG)&c);
+    if (c) set(str, MUIA_String_Contents, (ULONG)c);   /* edit, then Return runs it */
+}
+
+static Object *hist_field(void)
+{
+    hist_strobj.h_Entry = (APTR)HookEntry; hist_strobj.h_SubEntry = (APTR)hist_strobj_func;
+    hist_objstr.h_Entry = (APTR)HookEntry; hist_objstr.h_SubEntry = (APTR)hist_objstr_func;
+    return pop_hist = PopobjectObject,
+        MUIA_Popstring_String, (ULONG)(str_cmd = StringObject, StringFrame, MUIA_ControlChar, 'm',
+            MUIA_String_MaxLen, 500, MUIA_CycleChain, 1, End),
+        MUIA_Popstring_Button, (ULONG)PopButton(MUII_PopUp),
+        MUIA_Popobject_StrObjHook, (ULONG)&hist_strobj,
+        MUIA_Popobject_ObjStrHook, (ULONG)&hist_objstr,
+        MUIA_Popobject_Object, (ULONG)(lv_hist = ListviewObject,
+            MUIA_FixHeightTxt, (ULONG)"\n\n\n\n\n\n\n\n\n\n\n\n",
+            MUIA_Listview_List, (ULONG)(lst_hist = ListObject, InputListFrame,
+                MUIA_List_ConstructHook, MUIV_List_ConstructHook_String,
+                MUIA_List_DestructHook,  MUIV_List_DestructHook_String,
+            End),
+        End),
+        MUIA_CycleChain, 1,
+    End;
+}
 
 /* ------------------------------------------------------------------ *
  * Drive popups
@@ -1154,8 +1266,54 @@ static void cp_rebuild_cycle(int pi)
     p->mid = g_mach[act].id;
 }
 
+#define PANES_ENVARC "ENVARC:amifleet68.panes"
+#define PANES_ENV    "ENV:amifleet68.panes"
+
+/* Each pane's machine (by name) and drawer survive a restart. */
+static void panes_save(void)
+{
+    const char *files[] = { PANES_ENV, PANES_ENVARC };
+    int f, pi;
+    for (f = 0; f < 2; f++) {
+        FILE *fp = fopen(files[f], "w");
+        if (!fp) continue;
+        for (pi = 0; pi < 2; pi++) {
+            struct Machine *m = mach_by_id(g_pane[pi].mid);
+            if (m) fprintf(fp, "%s\t%s\n", m->name, g_pane[pi].path);
+        }
+        fclose(fp);
+    }
+}
+
+static void panes_load(void)
+{
+    FILE *fp = fopen(PANES_ENV, "r");
+    char line[320];
+    int pi = 0;
+    if (!fp) fp = fopen(PANES_ENVARC, "r");
+    if (!fp) return;
+    while (pi < 2 && fgets(line, sizeof line, fp)) {
+        char *tab = strchr(line, '\t');
+        int i;
+        line[strcspn(line, "\r\n")] = 0;
+        if (!tab) continue;
+        *tab = 0;
+        for (i = 0; i < g_nmach; i++)
+            if (!strcmp(g_mach[i].name, line)) {
+                g_pane[pi].mid = g_mach[i].id;
+                scpy(g_pane[pi].path, tab + 1, sizeof g_pane[pi].path);
+                break;
+            }
+        pi++;
+    }
+    fclose(fp);
+}
+
 static void cp_open(void)
 {
+    static int loaded;
+    if (!loaded) { loaded = 1; panes_load(); }
+    {
     struct Machine *sel = mach_selected();
     int pi;
     /* Left: this Amiga (a loopback machine) if there is one; right: the
@@ -1174,6 +1332,7 @@ static void cp_open(void)
     for (pi = 0; pi < 2; pi++) cp_rebuild_cycle(pi);
     set(win_copy, MUIA_Window_Open, TRUE);
     for (pi = 0; pi < 2; pi++) if (!g_pane[pi].n) cp_request(pi, g_pane[pi].path);
+    }
 }
 
 static void cp_machine_changed(int pi)
@@ -1247,7 +1406,7 @@ static void cp_copy(int from)
     struct Job *j;
     char msg[400];
     int n, i;
-    ULONG total = 0;
+    ULONG total = 0, move = 0;
 
     if (g_copy_job || !ms || !md) return;
     n = cp_selection(from, sel, COPY_MAX);
@@ -1257,13 +1416,63 @@ static void cp_copy(int from)
         return;
     }
     for (i = 0; i < n; i++) if (!sel[i]->is_dir) total += strtoul(sel[i]->size, NULL, 10);
+    get(chk_move, MUIA_Selected, &move);
+
+    /* Would anything be replaced? The destination pane's listing is the
+     * truth for its drawer - name the clashes and let the user choose. */
+    {
+        int clash = 0, k, c;
+        char names[200];
+        names[0] = 0;
+        for (i = 0; i < n; i++)
+            for (k = 0; k < d->n; k++)
+                if (!strcasecmp(sel[i]->name, d->ents[k].name)) {
+                    if (clash < 4) {
+                        if (names[0]) strncat(names, ", ", sizeof names - strlen(names) - 1);
+                        strncat(names, sel[i]->name, sizeof names - strlen(names) - 1);
+                    }
+                    clash++;
+                    break;
+                }
+        if (clash) {
+            if (clash == 1 && n == 1)
+                snprintf(msg, sizeof msg, "\033b%s\033n already exists in %s:%s.\n\nReplace it?",
+                         names, md->name, d->path);
+            else if (clash == 1)
+                snprintf(msg, sizeof msg, "\033b%s\033n already exists in %s:%s.\n\n"
+                         "Replace it, or copy only the others?", names, md->name, d->path);
+            else
+                snprintf(msg, sizeof msg, "%d of them already exist in %s:%s:\n\033b%s%s\033n\n\n"
+                         "Replace them, or copy only the others?",
+                         clash, md->name, d->path, names, clash > 4 ? ", ..." : "");
+            c = MUI_Request(app, win_copy, 0, (char *)(move ? "amifleet68: Move" : "amifleet68: Copy"),
+                            (char *)(n == 1 ? "_Replace|_Cancel" :
+                                     clash == 1 ? "_Replace|_Skip it|_Cancel" : "_Replace|_Skip them|_Cancel"), msg);
+            if (n == 1 && c == 2) c = 0;        /* two buttons: the 2nd is Cancel */
+            if (c == 0) return;
+            if (c == 2) {           /* drop the clashing ones */
+                int o = 0;
+                for (i = 0; i < n; i++) {
+                    int hit = 0;
+                    for (k = 0; k < d->n; k++) if (!strcasecmp(sel[i]->name, d->ents[k].name)) { hit = 1; break; }
+                    if (!hit) sel[o++] = sel[i];
+                }
+                n = o;
+                if (!n) { set(txt_cp, MUIA_Text_Contents, (ULONG)"Nothing left to copy."); return; }
+            }
+        }
+    }
+
     if (n == 1)
-        snprintf(msg, sizeof msg, "Copy \033b%s\033n\nfrom %s:%s\nto   %s:%s ?\n\nFiles of the same name there are replaced.",
-                 sel[0]->name, ms->name, s->path, md->name, d->path);
+        snprintf(msg, sizeof msg, "%s \033b%s\033n\nfrom %s:%s\nto   %s:%s ?%s",
+                 move ? "Move" : "Copy", sel[0]->name, ms->name, s->path, md->name, d->path,
+                 move ? "\n\nThe original is deleted once its copy is complete." : "");
     else
-        snprintf(msg, sizeof msg, "Copy \033b%d items\033n\nfrom %s:%s\nto   %s:%s ?\n\nFiles of the same name there are replaced.",
-                 n, ms->name, s->path, md->name, d->path);
-    if (MUI_Request(app, win_copy, 0, (char *)"Copy", (char *)"_Copy|_Cancel", msg) != 1) return;
+        snprintf(msg, sizeof msg, "%s \033b%d items\033n\nfrom %s:%s\nto   %s:%s ?%s",
+                 move ? "Move" : "Copy", n, ms->name, s->path, md->name, d->path,
+                 move ? "\n\nEach original is deleted once its copy is complete." : "");
+    if (MUI_Request(app, win_copy, 0, (char *)(move ? "amifleet68: Move" : "amifleet68: Copy"),
+                    (char *)(move ? "_Move|_Cancel" : "_Copy|_Cancel"), msg) != 1) return;
 
     if (!(cs = (struct CopySpec *)AllocVec(sizeof *cs, MEMF_ANY | MEMF_CLEAR))) return;
     scpy(cs->shost, ms->host, sizeof cs->shost); scpy(cs->stoken, ms->token, sizeof cs->stoken); cs->sport = ms->port;
@@ -1276,6 +1485,7 @@ static void cp_copy(int from)
         cs->size[i] = sel[i]->is_dir ? 0 : strtoul(sel[i]->size, NULL, 10);
     }
     cs->n = (UWORD)n;
+    cs->move = move ? 1 : 0;
     if (!(j = job_new(JOB_COPY, ms))) { FreeVec(cs); return; }
     j->cs = cs;
     j->tag = (UBYTE)(!from + 1);                 /* refresh the destination */
@@ -1286,7 +1496,7 @@ static void cp_copy(int from)
     if (md != ms) md->busy++;
     j->hash = md->id;                            /* remember the other end */
     cp_buttons();
-    set(txt_cp, MUIA_Text_Contents, (ULONG)"Copying...");
+    set(txt_cp, MUIA_Text_Contents, (ULONG)(move ? "Moving..." : "Copying..."));
     job_send(&w_copy, j);
     (void)total;
 }
@@ -1305,6 +1515,7 @@ static void cp_progress(void)
 
 static void cp_copy_reply(struct Job *j)
 {
+    int moved_any;
     struct CopySpec *cs = j->cs;
     struct Machine *a = mach_by_id(j->mid), *b2 = mach_by_id(j->hash);
     char b[300];
@@ -1313,7 +1524,7 @@ static void cp_copy_reply(struct Job *j)
     if (a && a->busy) a->busy--;
     if (b2 && b2 != a && b2->busy) b2->busy--;
     if (j->status == JS_OK)
-        snprintf(b, sizeof b, "Copied %lu file%s, %lu KB in %lu.%lu s%s.",
+        snprintf(b, sizeof b, "%s %lu file%s, %lu KB in %lu.%lu s%s.", cs->move ? "Moved" : "Copied",
                  (unsigned long)cs->files, cs->files == 1 ? "" : "s", (unsigned long)(cs->bytes >> 10),
                  (unsigned long)(ms / 1000), (unsigned long)(ms % 1000 / 100),
                  cs->same ? " (on the machine itself)" : "");
@@ -1325,10 +1536,12 @@ static void cp_copy_reply(struct Job *j)
     set(txt_cp, MUIA_Text_Contents, (ULONG)b);
     g_copy_job = NULL;
     g_copy_spec = NULL;
+    moved_any = cs->move && cs->moved;
     FreeVec(cs);
     j->cs = NULL;
     cp_buttons();
     cp_request(j->tag - 1, g_pane[j->tag - 1].path);
+    if (moved_any) cp_request(!(j->tag - 1), g_pane[!(j->tag - 1)].path);   /* the source changed too */
 }
 
 static void cp_cancel(void)
@@ -1388,7 +1601,7 @@ static void cp_delete(void)
                          sel[0]->name, sel[0]->is_dir ? " and everything in it" : "", m->name, g_pane[pi].path);
     else snprintf(msg, sizeof msg, "Delete \033b%d items\033n on %s:%s ?\nDrawers are deleted with everything in them.\n\nThis cannot be undone.",
                   n, m->name, g_pane[pi].path);
-    if (MUI_Request(app, win_copy, 0, (char *)"Delete", (char *)"_Delete|_Cancel", msg) != 1) return;
+    if (MUI_Request(app, win_copy, 0, (char *)"amifleet68: Delete", (char *)"_Delete|_Cancel", msg) != 1) return;
     g_fop_err[pi][0] = 0;
     for (i = 0; i < n; i++) {
         char path[300], q[320], cmd[400];
@@ -1536,7 +1749,7 @@ static int cp_handle(LONG id)
     if (id >= ID_CP_ACTIVE && id < ID_CP_ACTIVE + 2) { g_cp_active = (int)(id - ID_CP_ACTIVE); return 1; }
     switch (id) {
     case ID_COPYWIN: cp_open(); return 1;
-    case ID_CP_CLOSE: set(win_copy, MUIA_Window_Open, FALSE); return 1;
+    case ID_CP_CLOSE: panes_save(); set(win_copy, MUIA_Window_Open, FALSE); return 1;
     case ID_CP_TO_RIGHT: cp_copy(0); return 1;
     case ID_CP_TO_LEFT: cp_copy(1); return 1;
     case ID_CP_DELETE: cp_delete(); return 1;
@@ -2163,7 +2376,7 @@ static void remove_selected(void)
     int idx;
     if (!m) return;
     snprintf(msg, sizeof msg, "Remove \033b%s\033n (%s) from the fleet?", m->name, m->host);
-    if (MUI_Request(app, win, 0, (char *)"amifleet68", (char *)"_Remove|_Cancel", msg) != 1)
+    if (MUI_Request(app, win, 0, (char *)"amifleet68: Remove", (char *)"_Remove|_Cancel", msg) != 1)
         return;
     if (m->id == g_detail_mid) { set(win_det, MUIA_Window_Open, FALSE); g_detail_mid = 0; }
     idx = (int)(m - g_mach);
@@ -2194,6 +2407,7 @@ static void scan_open(void)
     if ((!cur || !cur[0]) && g_nmach)
         set(str_scan_token, MUIA_String_Contents, (ULONG)g_mach[0].token);
     set(win_scan, MUIA_Window_Open, TRUE);
+    set(win_scan, MUIA_Window_ActiveObject, (ULONG)str_scan_net);   /* type at once */
 }
 
 static void scan_start(void)
@@ -2228,6 +2442,7 @@ static void shell_run(void)
     if (!m || g_exec_busy) return;
     get(str_cmd, MUIA_String_Contents, &cmd);
     if (!cmd || !cmd[0]) return;
+    hist_add(cmd);
     if (!(j = job_new(JOB_EXEC, m))) return;
     scpy(j->arg, cmd, sizeof j->arg);
     j->deadline = EXEC_DEADLINE;
@@ -2303,7 +2518,7 @@ static void about(void)
 
 
 /* ------------------------------------------------------------------ *
- * ARexx: port AMIFLEET.1, on top of MUI's built-ins (QUIT, SHOW, HIDE...)
+ * ARexx: port AMIFLEET68.1, on top of MUI's built-ins (QUIT, SHOW, HIDE...)
  *
  *   MACHINES                  one line per machine: name state ms agent cpu os
  *   STATE NAME/A              online | offline | token | busy | unknown
@@ -2314,10 +2529,12 @@ static void about(void)
  *   VNC NAME/A                open the VNC window (CONNECT to start)
  *   CONNECT / DISCONNECT      the VNC window's session
  *   COPYFILES                 open the file copy window
+ *   FAULT CODE/N/A            the text for a return code (style guide)
+ *   RX COMMAND/F              run an ARexx macro, detached (style guide)
  * ------------------------------------------------------------------ */
 
 enum { RX_MACHINES = 1, RX_STATE, RX_POLL, RX_ADD, RX_DETAILS, RX_SCREEN, RX_VNC,
-       RX_CONNECT, RX_DISCONNECT, RX_COPYFILES };
+       RX_CONNECT, RX_DISCONNECT, RX_COPYFILES, RX_FAULT, RX_RX };
 
 static char g_rx_result[1600];
 
@@ -2400,11 +2617,35 @@ static LONG rx_func(struct Hook *h, Object *o, ULONG *args)
     case RX_COPYFILES:
         cp_open();
         return 0;
+    case RX_FAULT: {        /* the text for an error code, as the style guide asks */
+        LONG code = args[0] ? *(LONG *)args[0] : 0;
+        const char *t = code == 0 ? "no error" :
+                        code == 5 ? "warning" :
+                        code == 10 ? "no such machine, or not possible right now" :
+                        code == 20 ? "failure" : NULL;
+        if (t) scpy(g_rx_result, t, sizeof g_rx_result);
+        else if (!Fault(code, NULL, (STRPTR)g_rx_result, sizeof g_rx_result))
+            snprintf(g_rx_result, sizeof g_rx_result, "error %ld", (long)code);
+        set(app, MUIA_Application_RexxString, (ULONG)g_rx_result);
+        return 0; }
+    case RX_RX: {           /* run an ARexx macro, detached */
+        char cmd[400];
+        BPTR in, out;
+        if (!args[0]) return 10;
+        snprintf(cmd, sizeof cmd, "SYS:Rexxc/RX %s", (char *)args[0]);
+        in = Open((STRPTR)"NIL:", MODE_OLDFILE);
+        out = Open((STRPTR)"NIL:", MODE_NEWFILE);
+        if (SystemTags((STRPTR)cmd, SYS_Input, in, SYS_Output, out, SYS_Asynch, TRUE, TAG_DONE) == -1) {
+            if (in) Close(in);
+            if (out) Close(out);
+            return 20;
+        }
+        return 0; }
     }
     return 10;
 }
 
-static struct Hook rx_hooks[10];
+static struct Hook rx_hooks[12];
 static struct MUI_Command rx_commands[] = {
     { (char *)"MACHINES",   NULL,                               0, &rx_hooks[0], {0} },
     { (char *)"STATE",      (char *)"NAME/A",                   1, &rx_hooks[1], {0} },
@@ -2416,13 +2657,15 @@ static struct MUI_Command rx_commands[] = {
     { (char *)"CONNECT",    NULL,                               0, &rx_hooks[7], {0} },
     { (char *)"DISCONNECT", NULL,                               0, &rx_hooks[8], {0} },
     { (char *)"COPYFILES",  NULL,                               0, &rx_hooks[9], {0} },
+    { (char *)"FAULT",      (char *)"CODE/N/A",                 1, &rx_hooks[10], {0} },
+    { (char *)"RX",         (char *)"COMMAND/F",                1, &rx_hooks[11], {0} },
     { NULL, NULL, 0, NULL, {0} }
 };
 
 static void rx_init(void)
 {
     int i;
-    for (i = 0; i < 10; i++) {
+    for (i = 0; i < 12; i++) {
         rx_hooks[i].h_Entry = (APTR)HookEntry;
         rx_hooks[i].h_SubEntry = (APTR)rx_func;
         rx_hooks[i].h_Data = (APTR)(ULONG)(i + 1);
@@ -2472,7 +2715,9 @@ static int build_app(void)
         MUIA_Application_Description, (ULONG)"amiagent fleet console",
         /* PALTEST gets its own base: MUI remembers window geometry per
          * base, and a test run must not shrink the real layout. */
-        MUIA_Application_Base,        (ULONG)(g_paltest ? "AMIFLEETPAL" : "AMIFLEET"),
+        /* UI Style Guide (ARexx): the port's base name is the program's
+         * name - AMIFLEET68.1. A screen test runs under its own base. */
+        MUIA_Application_Base,        (ULONG)(g_paltest ? "AMIFLEET68TEST" : "AMIFLEET68"),
         MUIA_Application_Commands,    (ULONG)rx_commands,
         MUIA_Application_HelpFile,    (ULONG)guide_path(),     /* the Help key */
 
@@ -2489,16 +2734,16 @@ static int build_app(void)
             End,
             MUIA_Family_Child, MenuObjectT("Fleet"),
                 MUIA_Family_Child, menuitem("Add machine...", "A", ID_ADD),
-                MUIA_Family_Child, menuitem("Edit machine...", "E", ID_EDIT),
-                MUIA_Family_Child, menuitem("Remove machine...", NULL, ID_REMOVE),
+                MUIA_Family_Child, mi_edit = menuitem("Edit machine...", "E", ID_EDIT),
+                MUIA_Family_Child, mi_remove = menuitem("Remove machine...", NULL, ID_REMOVE),
                 MUIA_Family_Child, menubar(),
                 MUIA_Family_Child, menuitem("Poll now", "P", ID_POLL),
                 MUIA_Family_Child, menuitem("Scan network...", "S", ID_SCAN),
             End,
             MUIA_Family_Child, MenuObjectT("Windows"),
-                MUIA_Family_Child, menuitem("Details...", "D", ID_DETAILS),
-                MUIA_Family_Child, menuitem("Screen...", "W", ID_SCREEN),
-                MUIA_Family_Child, menuitem("VNC...", "N", ID_VNC),
+                MUIA_Family_Child, mi_details = menuitem("Details...", "D", ID_DETAILS),
+                MUIA_Family_Child, mi_screen = menuitem("Screen...", "W", ID_SCREEN),
+                MUIA_Family_Child, mi_vnc = menuitem("VNC...", "N", ID_VNC),
                 MUIA_Family_Child, menuitem("Copy files...", "F", ID_COPYWIN),
             End,
             MUIA_Family_Child, MenuObjectT("Settings"),
@@ -2515,11 +2760,14 @@ static int build_app(void)
                 /* Two rows: one row of nine buttons is ~720 px in topaz/8, and
                  * the MUI style guide wants every window to fit 640x256. */
                 Child, HGroup,
+                    /* Remove sits at the end, away from the everyday buttons
+                     * (style guide: dangerous controls apart). */
                     Child, bt_add     = SimpleButton("_Add..."),
                     Child, bt_edit    = SimpleButton("_Edit..."),
-                    Child, bt_remove  = SimpleButton("_Remove..."),
                     Child, bt_poll    = SimpleButton("_Poll now"),
                     Child, bt_scan    = SimpleButton("_Scan..."),
+                    Child, MUI_MakeObject(MUIO_VBar, 4),
+                    Child, bt_remove  = SimpleButton("_Remove..."),
                 End,
                 Child, HGroup,
                     Child, bt_details = SimpleButton("_Details..."),
@@ -2660,17 +2908,20 @@ static int build_app(void)
                 Child, HGroup,
                     Child, bt_cp_right = SimpleButton("Copy _>>"),
                     Child, bt_cp_left  = SimpleButton("_<< Copy"),
+                    Child, chk_move = MUI_MakeObject(MUIO_Checkmark, (ULONG)"Mo_ve"),
+                    Child, KeyLabel1("Move", 'v'),
                     Child, MUI_MakeObject(MUIO_VBar, 4),
-                    Child, bt_cp_del   = SimpleButton("De_lete..."),
                     Child, bt_cp_ren   = SimpleButton("Re_name..."),
                     Child, bt_cp_mkd   = SimpleButton("_MakeDir..."),
                     Child, bt_cp_ref   = SimpleButton("Re_fresh"),
+                    Child, MUI_MakeObject(MUIO_VBar, 4),
+                    Child, bt_cp_del   = SimpleButton("De_lete..."),
                 End,
                 Child, HGroup,
                     Child, txt_cp = TextObject, TextFrame, MUIA_Background, MUII_TextBack,
                         MUIA_HorizWeight, 400,
                         MUIA_Text_Contents, (ULONG)"Mark entries (shift-click for several), then Copy >> or << Copy.", End,
-                    Child, bt_cp_cancel = SimpleButton("_Cancel"),
+                    Child, bt_cp_cancel = SimpleButton("_Stop"),
                 End,
             End,
         End,
@@ -2725,13 +2976,12 @@ static int build_app(void)
                         End,
                         Child, HGroup,
                             Child, KeyLabel2("Command:", 'm'),
-                            Child, str_cmd = StringObject, StringFrame, MUIA_ControlChar, 'm',
-                                MUIA_String_MaxLen, 500, MUIA_CycleChain, 1, End,
+                            Child, hist_field(),
                         End,
                         Child, HGroup,
                             Child, txt_shell = StatusText(""),
                             Child, bt_run   = SimpleButton("_Run"),
-                            Child, bt_break = SimpleButton("_Break"),
+                            Child, bt_break = SimpleButton("_Stop"),
                             Child, bt_clear = SimpleButton("C_lear"),
                         End,
                     End,
@@ -2808,6 +3058,20 @@ static int build_app(void)
     }
     cp_notify();
     drive_notify();
+    {   /* Esc closes the secondary windows, as Cancel would. */
+        struct { Object *w; LONG id; } esc[] = {
+            { win_edit, ID_EDIT_CANCEL }, { win_scan, ID_SCAN_CLOSE }, { win_ask, ID_ASK_CANCEL },
+            { win_copy, ID_CP_CLOSE }, { win_det, ID_DETAIL_CLOSE }, { win_scr, ID_SCR_CLOSE },
+            { win_vnc, ID_VNC_CLOSE } };
+        unsigned k;
+        for (k = 0; k < sizeof esc / sizeof esc[0]; k++)
+            DoMethod(esc[k].w, MUIM_Notify, MUIA_Window_InputEvent, (ULONG)"esc",
+                     (ULONG)app, 2, MUIM_Application_ReturnID, esc[k].id);
+    }
+    DoMethod(lv_hist, MUIM_Notify, MUIA_Listview_DoubleClick, TRUE,
+             (ULONG)pop_hist, 2, MUIM_Popstring_Close, TRUE);
+    set(pop_hist, MUIA_ShortHelp, (ULONG)"Earlier commands: pick one, edit it, press Return.");
+    set(chk_move, MUIA_ShortHelp, (ULONG)"Move instead of copy: each original is deleted\nonce its copy has finished without an error.");
     str_path = g_dpop[2].str;
     RET(win_scr, MUIA_Window_CloseRequest, TRUE, ID_SCR_CLOSE);
     RET(bt_scr_refresh, MUIA_Pressed, FALSE, ID_SCR_REFRESH);
@@ -2997,8 +3261,10 @@ static void on_test_screen(void)
 {
     Object *ws[] = { win, win_edit, win_scan, win_scr, win_vnc, win_copy, win_ask, win_det };
     unsigned k;
-    if (!g_testscr) return;
-    for (k = 0; k < sizeof ws / sizeof ws[0]; k++) set(ws[k], MUIA_Window_Screen, (ULONG)g_testscr);
+    for (k = 0; k < sizeof ws / sizeof ws[0]; k++) {
+        if (g_testscr) set(ws[k], MUIA_Window_Screen, (ULONG)g_testscr);
+        else if (g_pubscreen[0]) set(ws[k], MUIA_Window_PublicScreen, (ULONG)g_pubscreen);
+    }
 }
 
 static int gui_run(void)
@@ -3031,6 +3297,7 @@ static int gui_run(void)
         g_timer_ok = 1;
 
     prefs_load();
+    hist_load();
     if (!g_nmach)   /* first run: the agent on this very machine */
         mach_init(&g_mach[g_nmach++], "This Amiga", "127.0.0.1", AGENT_PORT, "");
 
@@ -3038,19 +3305,20 @@ static int gui_run(void)
         static struct TextAttr topaz8 = { (STRPTR)"topaz.font", 8, 0, 0 };
         static UWORD pens[] = { (UWORD)~0 };
         g_testscr = OpenScreenTags(NULL,
-            SA_Width, 640, SA_Height, 256, SA_Depth, 3,
-            SA_DisplayID, PAL_MONITOR_ID | HIRES_KEY,
+            SA_Width, 640, SA_Height, g_testh, SA_Depth, 3,
+            SA_DisplayID, (g_testh > 200 ? PAL_MONITOR_ID : NTSC_MONITOR_ID) | HIRES_KEY,
             SA_Font, (ULONG)&topaz8, SA_Pens, (ULONG)pens,
-            SA_Title, (ULONG)"amifleet68 PALTEST - 640x256 topaz/8",
+            SA_Title, (ULONG)(g_testh > 200 ? "amifleet68 PALTEST - 640x256 topaz/8"
+                                            : "amifleet68 NTSCTEST - 640x200 topaz/8"),
             TAG_DONE);
         if (!g_testscr) {       /* no PAL monitor driver: any 640x256 mode */
-            ULONG id = BestModeID(BIDTAG_NominalWidth, 640, BIDTAG_NominalHeight, 256,
+            ULONG id = BestModeID(BIDTAG_NominalWidth, 640, BIDTAG_NominalHeight, g_testh,
                                   BIDTAG_Depth, 3, TAG_DONE);
             if (id != (ULONG)INVALID_ID)
                 g_testscr = OpenScreenTags(NULL,
-                    SA_Width, 640, SA_Height, 256, SA_Depth, 3, SA_DisplayID, id,
+                    SA_Width, 640, SA_Height, g_testh, SA_Depth, 3, SA_DisplayID, id,
                     SA_Font, (ULONG)&topaz8, SA_Pens, (ULONG)pens,
-                    SA_Title, (ULONG)"amifleet68 PALTEST - 640x256 topaz/8", TAG_DONE);
+                    SA_Title, (ULONG)"amifleet68 screen test - 640 wide, topaz/8", TAG_DONE);
         }
         if (!g_testscr) { printf("amifleet68: PALTEST screen did not open.\n"); fflush(stdout); }
     }
@@ -3063,6 +3331,10 @@ static int gui_run(void)
         goto out;
     }
     if (g_dobj) set(app, MUIA_Application_DiskObject, (ULONG)g_dobj);
+    if (!g_pubscreen[0] && g_dobj && g_dobj->do_ToolTypes) {   /* standard tool type */
+        STRPTR v = FindToolType((CONST_STRPTR *)g_dobj->do_ToolTypes, (CONST_STRPTR)"PUBSCREEN");
+        if (v) scpy(g_pubscreen, (char *)v, sizeof g_pubscreen);
+    }
     on_test_screen();
     list_rebuild(0);
     update_buttons();
@@ -3121,6 +3393,7 @@ static int gui_run(void)
         }
     }
     rc = RETURN_OK;
+    if (g_pane[0].mid || g_pane[1].mid) panes_save();
 
 out:
     if (app) {
@@ -3158,11 +3431,21 @@ static int   g_rc;
 
 int main(void)
 {
-    /* From a Shell: "amifleet68 PALTEST". Read the raw argument string -
-     * the startup's argc/argv did not carry it through (measured). */
-    {
-        STRPTR args = GetArgStr();
-        if (args && (strstr((char *)args, "PALTEST") || strstr((char *)args, "paltest"))) g_paltest = 1;
+    /* Shell arguments the standard way (the UI Style Guide's Shell chapter):
+     * ReadArgs, so "amifleet68 ?" shows the template. Only from a Shell - a
+     * Workbench start has no command line (tool types are read later). */
+    if (((struct Process *)FindTask(NULL))->pr_CLI) {
+        LONG av[3] = { 0, 0, 0 };
+        struct RDArgs *rd = ReadArgs((STRPTR)"PUBSCREEN/K,PALTEST/S,NTSCTEST/S", av, NULL);
+        if (rd) {
+            if (av[0]) scpy(g_pubscreen, (char *)av[0], sizeof g_pubscreen);
+            if (av[1]) { g_paltest = 1; g_testh = 256; }
+            if (av[2]) { g_paltest = 1; g_testh = 200; }
+            FreeArgs(rd);
+        } else {
+            PrintFault(IoErr(), (STRPTR)"amifleet68");
+            return RETURN_ERROR;
+        }
     }
     g_stk = (char *)AllocMem(STACK_BYTES, MEMF_ANY);
     if (!g_stk) return gui_run();

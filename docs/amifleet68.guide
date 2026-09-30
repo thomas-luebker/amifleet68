@@ -1,12 +1,12 @@
 @database amifleet68.guide
-@$VER: amifleet68.guide 0.4.1 (30.9.2026)
+@$VER: amifleet68.guide 0.5.0 (1.10.2026)
 @author "Thomas Luebker"
 @(c) "2026 Thomas Luebker - Apache License 2.0"
 @wordwrap
 
 @node Main "amifleet68"
 
-@{b}amifleet68 0.4.1@{ub} - the amiagent fleet console, native on the Amiga
+@{b}amifleet68 0.5.0@{ub} - the amiagent fleet console, native on the Amiga
 
 Watch every Amiga running amiagent from one window, run AmigaDOS commands
 on them, move files, see and drive their screens, and connect to AmiVNC.
@@ -21,7 +21,7 @@ server to install and no PC or Mac in the loop.
     @{" VNC window       " link VNC}  a session to AmiVNC
     @{" Copy files       " link Copy}  between any two machines
     @{" Menus            " link Menus}  and their keys
-    @{" ARexx            " link ARexx}  the AMIFLEET.1 port
+    @{" ARexx            " link ARexx}  the AMIFLEET68.1 port
     @{" Tips and limits  " link Tips}  what is worth knowing
     @{" Security         " link Security}  read this before you open ports
     @{" History          " link History}
@@ -102,10 +102,12 @@ work on the selected row. Hold the pointer over a button for a hint.
 
 @{b}Shell@{ub}  type an AmigaDOS command and press Return. It runs on that machine
        and the output comes back with the return code and the time taken.
+       The popup button beside the field lists your earlier commands:
+       pick one, edit it, press Return.
 
        The agent waits 20 seconds for a command. After that it answers
        "still running" and gets on with other work, and @{b}Break@{ub} can send
-       the command Ctrl-C. (While it waits, the agent answers nothing
+       the command Ctrl-C (@{b}Stop@{ub}). (While it waits, the agent answers nothing
        else - that is why the board shows @{b}busy@{ub}.)
 
 @{b}Files@{ub}  browse that machine's disks. Type a path and press Return,
@@ -114,7 +116,7 @@ work on the selected row. Hold the pointer over a button for a hint.
        @{b}Download...@{ub} saves the selected file on this Amiga. Large files
        come in 64 KB pieces, so memory is no limit.
        @{b}Upload...@{ub} sends a file from this Amiga into the drawer shown
-       (up to 16 MB).
+       (larger files go up in parts and are joined there).
 
 @endnode
 
@@ -175,14 +177,18 @@ Mark entries (shift-click or drag for several), then:
 
   @{b}Copy >>@{ub}     copy them from the left pane into the right pane's drawer
   @{b}<< Copy@{ub}     the other way round
+  @{b}Move@{ub}        tick it first to move instead: each original is deleted
+              only after its own copy finished without an error
   @{b}Delete...@{ub}   delete them in the pane you used last (asks first;
               drawers go with everything in them)
   @{b}Rename...@{ub}   rename the entry you clicked last
   @{b}MakeDir...@{ub}  make a new drawer in that pane
 
-Drawers are copied with everything in them. Files of the same name at the
-destination are replaced - the copy asks before it starts. @{b}Cancel@{ub} stops
-it after the current piece.
+Drawers are copied with everything in them. If something of the same name
+is already there, amifleet68 names it and asks: Replace, Skip, or Cancel.
+@{b}Stop@{ub} halts a copy after the current piece.
+
+Each pane remembers its machine and drawer for next time.
 
 Within one machine the copy is a plain AmigaDOS Copy ALL CLONE on that
 machine, which keeps dates and protection bits. Between machines, every
@@ -205,15 +211,26 @@ copy, paste and clear.
 Every button has an underlined key, Tab walks through them, and Help on
 any window opens its page of this manual.
 
-@{b}PALTEST@{ub}: start "amifleet68 PALTEST" from a Shell and every window opens
-on a 640x256 topaz/8 screen - the size the MUI style guide says a
-program must fit. Its window layout is kept apart from your normal one.
+Menu items that cannot be used right now are ghosted, and Esc closes
+any window except the fleet board.
+
+@{b}Starting it@{ub}: from Workbench, or from a Shell with
+
+  amifleet68 [PUBSCREEN <name>] [PALTEST] [NTSCTEST]
+
+  PUBSCREEN  open on that public screen (also a tool type:
+             PUBSCREEN=<name> in the icon's Information)
+  PALTEST    every window on a 640x256 topaz/8 screen
+  NTSCTEST   every window on a 640x200 topaz/8 screen - the size the
+             Amiga UI Style Guide says a program must fit
+The test modes keep their window layout apart from your normal one.
 
 @endnode
 
 @node ARexx "ARexx"
 
-amifleet68's port is @{b}AMIFLEET.1@{ub}. Besides MUI's standard commands
+amifleet68's port is @{b}AMIFLEET68.1@{ub} (the program's name, as the Amiga
+UI Style Guide asks). Besides MUI's standard commands
 (QUIT, HIDE, SHOW, ...):
 
   MACHINES                     one line per machine:
@@ -227,12 +244,14 @@ amifleet68's port is @{b}AMIFLEET.1@{ub}. Besides MUI's standard commands
   VNC NAME/A
   CONNECT, DISCONNECT          the VNC window's session
   COPYFILES                    open the Copy files window
+  FAULT CODE/N/A               the text for a return code or DOS error
+  RX COMMAND/F                 run an ARexx macro, detached
 
 Example:
 
   /* who is up? */
   options results
-  address 'AMIFLEET.1'
+  address 'AMIFLEET68.1'
   'MACHINES'
   say RESULT
 
@@ -265,6 +284,15 @@ amifleet68 stores the tokens in plain text in ENV: and ENVARC:.
 @endnode
 
 @node History "History"
+
+@{b}0.5.0@{ub} (1.10.2026)
+  - Move in the copier; it asks before replacing, naming what is there
+  - Uploads of any size (big files in parts, joined on the Amiga)
+  - Shell history in a popup; the copier remembers its panes
+  - Amiga UI Style Guide pass: ARexx port AMIFLEET68.1, FAULT and RX,
+    ghosted menu items, Esc closes windows, "Stop" instead of "Break",
+    dangerous buttons at the row ends, PUBSCREEN tool type and argument,
+    fits 640x200 (NTSCTEST)
 
 @{b}0.4.1@{ub} (30.9.2026)
   - A new, shaded GlowIcon, the same one in the archive and in the dock

@@ -34,7 +34,9 @@ macOS/SwiftUI app): it speaks the amimcp wire protocol
   local keymap) are forwarded.
 - **Copy files** — two panes, each on any machine of the board (the local
   one included, through its own agent). Copy files and whole drawers either
-  way, Delete, Rename, MakeDir; progress and Cancel. Same machine: one
+  way, **Move** (each original deleted only after its own copy succeeded),
+  Delete, Rename, MakeDir; progress and Stop; asks Replace/Skip/Cancel
+  before overwriting, naming what is there; panes remembered. Same machine: one
   AmigaDOS `Copy ALL CLONE` there. Between machines: streamed agent to agent
   (`GETRANGE` → `PUT`, 256 KB pieces; files over 15 MB in 8 MB parts that
   are `Join`ed at the destination). 21 MB A4000 → PiStorm: 69.7 s, every
@@ -46,7 +48,7 @@ macOS/SwiftUI app): it speaks the amimcp wire protocol
   the given token, and adds the agents it finds. The network is pre-filled
   from this Amiga's own address (`gethostid()`).
 - **Add / Edit / Remove** — name, host, port, token.
-- **ARexx** port **`AMIFLEET.1`** — MUI's built-ins (`QUIT`, `HIDE`, `SHOW`…)
+- **ARexx** port **`AMIFLEET68.1`** — MUI's built-ins (`QUIT`, `HIDE`, `SHOW`…)
   plus:
 
   | Command | |
@@ -62,7 +64,7 @@ macOS/SwiftUI app): it speaks the amimcp wire protocol
   ```rexx
   /* who is up? */
   options results
-  address 'AMIFLEET.1'
+  address 'AMIFLEET68.1'
   'MACHINES'
   say RESULT
   ```
@@ -78,10 +80,27 @@ this Amiga's own agent (`127.0.0.1`).
   (`bsdsocket.library` v4: Roadshow, AmiTCP, Miami).
 - `amiagent` on each machine you want to see.
 
-## MUI style guide
+## Style guides
 
-Checked against the guide in the MUI 3.8 developer kit and the Amiga UI
-Style Guide:
+Checked against the MUI 3.8 developer kit's style guide and the
+[AmigaOS UI Style Guide](https://wiki.amigaos.net/wiki/UI_Style_Guide_Introduction)
+(Menus, Keyboard, Windows and Requesters, Gadgets, ARexx, Workbench, Shell):
+
+- **Fits 640×200 topaz/8** (the AmigaOS guide; MUI's asks 640×256):
+  `amifleet68 NTSCTEST` / `PALTEST` open every window on such a screen.
+  Verified: board 148, Details 174, Copy 157, Screen 146, VNC 163 px high.
+- **ARexx**: port base is the program name (`AMIFLEET68.1`), plus the
+  standard `FAULT` and `RX`; RC 0/5/10/20 as the guide defines them.
+- **Menus**: ghosted when not applicable; ellipsis on items that open a
+  window; Quit last in Project.
+- **Keyboard**: Esc closes secondary windows; requester buttons have keys.
+- **Gadgets**: friendly words ("Stop", not "Break"/"Abort"); Remove and
+  Delete sit at the row ends, away from everyday buttons; positive action
+  left, Cancel right; requester titles carry the program name.
+- **Workbench/Shell**: `PUBSCREEN=` tool type and argument; arguments via
+  `ReadArgs` (`amifleet68 ?` shows the template).
+
+Earlier (MUI guide):
 
 - **Fits 640×256 topaz/8.** `amifleet68 PALTEST` opens every window on a
   real 640×256 PAL screen; board, Details, Copy, Screen and VNC all fit
