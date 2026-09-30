@@ -1,0 +1,57 @@
+#!/bin/sh
+# release.sh - build dist/amifleet68-<version>.lha and its .readme.
+#
+# Clean build of both CPUs, the version checked INSIDE each binary, the
+# drawer staged Aminet-style, packed with AmigaDiskKit's LHA writer (macOS has
+# no LHA writer; Homebrew's lha is extract-only), then unpacked again and
+# compared file by file. A release nobody can unpack is worse than none.
+set -eu
+cd "$(dirname "$0")"
+
+VER=$(sed -n 's/^#define AMIFLEET_VERSION "\(.*\)"/\1/p' src/fleet.h)
+LHACLI=${LHACLI:-$HOME/Development/AmigaDiskKit/.build/arm64-apple-macosx/release/AmigaDiskCLI}
+[ -x "$LHACLI" ] || { echo "AmigaDiskCLI missing: (cd ~/Development/AmigaDiskKit && swift build -c release)"; exit 1; }
+for f in icon/amifleet68.info icon/drawer.info icon/guide.info docs/amifleet68.guide docs/amifleet68.readme LICENSE; do
+    [ -f "$f" ] || { echo "missing $f"; exit 1; }
+done
+
+make clean >/dev/null
+make >/dev/null
+make CPU=68020 >/dev/null
+for b in amifleet68 amifleet68.020; do
+    strings "$b" | grep -q "\$VER: amifleet68 $VER " || { echo "$b does not say $VER"; exit 1; }
+done
+grep -q "amifleet68.guide $VER " docs/amifleet68.guide || { echo "guide \$VER is not $VER"; exit 1; }
+grep -q "^Version: *$VER\$" docs/amifleet68.readme || { echo "readme Version is not $VER"; exit 1; }
+
+STAGE=dist/stage
+rm -rf "$STAGE"
+mkdir -p "$STAGE/amifleet68"
+D="$STAGE/amifleet68"
+cp amifleet68 amifleet68.020 "$D/"
+cp icon/amifleet68.info "$D/amifleet68.info"
+cp icon/amifleet68.info "$D/amifleet68.020.info"
+cp docs/amifleet68.guide "$D/amifleet68.guide"
+cp icon/guide.info "$D/amifleet68.guide.info"
+cp docs/amifleet68.readme "$D/README"
+cp LICENSE "$D/LICENSE"
+cp icon/drawer.info "$STAGE/amifleet68.info"
+
+OUT="dist/amifleet68-$VER.lha"
+rm -f "$OUT"
+"$LHACLI" lha create "$OUT" "$STAGE" >/dev/null
+cp docs/amifleet68.readme "dist/amifleet68-$VER.readme"
+
+# Unpack and compare every file.
+CHK=dist/check
+rm -rf "$CHK"; mkdir -p "$CHK"
+(cd "$CHK" && lha xq "../amifleet68-$VER.lha")
+( cd "$STAGE" && find . -type f ) | while read -r f; do
+    cmp -s "$STAGE/$f" "$CHK/$f" || { echo "MISMATCH in archive: $f"; exit 1; }
+done
+strings "$CHK/amifleet68/amifleet68" | grep -q "\$VER: amifleet68 $VER " || { echo "archived binary is not $VER"; exit 1; }
+rm -rf "$CHK"
+
+echo "$OUT  ($(wc -c < "$OUT" | tr -d ' ') bytes, $VER)"
+lha l "$OUT" | tail -n +2
+shasum -a 256 "$OUT"

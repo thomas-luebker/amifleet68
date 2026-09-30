@@ -1,0 +1,236 @@
+@database amifleet68.guide
+@$VER: amifleet68.guide 0.3.0 (30.9.2026)
+@author "Thomas Luebker"
+@(c) "2026 Thomas Luebker - Apache License 2.0"
+@wordwrap
+
+@node Main "amifleet68"
+
+@{b}amifleet68 0.3.0@{ub} - the amiagent fleet console, native on the Amiga
+
+Watch every Amiga running amiagent from one window, run AmigaDOS commands
+on them, move files, see and drive their screens, and connect to AmiVNC.
+amifleet68 speaks the amimcp wire protocol straight over TCP. There is no
+server to install and no PC or Mac in the loop.
+
+    @{" Requirements     " link Requirements}  what it needs
+    @{" Getting started  " link Start}  the first run, adding machines
+    @{" The fleet board  " link Board}  what the columns mean
+    @{" Details window   " link Details}  report, shell, files
+    @{" Screen window    " link Screen}  the machine's screen, through the agent
+    @{" VNC window       " link VNC}  a session to AmiVNC
+    @{" ARexx            " link ARexx}  the AMIFLEET.1 port
+    @{" Tips and limits  " link Tips}  what is worth knowing
+    @{" Security         " link Security}  read this before you open ports
+    @{" History          " link History}
+    @{" Author & licence " link Author}
+
+@endnode
+
+@node Requirements "Requirements"
+
+@{b}On the Amiga running amifleet68@{ub}
+
+  - AmigaOS 3.0 or later (3.1 for the planar Screen/VNC drawing).
+    amifleet68 runs on a plain 68000; amifleet68.020 is for 68020+.
+  - MUI 3.8 or later (muimaster.library v19). With amipkg:
+    amipkg install mui38
+  - A running TCP/IP stack: Roadshow, AmiTCP, Miami (bsdsocket.library v4).
+  - Optional: cybergraphics.library (Picasso96 or CyberGraphX) for fast
+    truecolour drawing of remote screens.
+
+@{b}On every machine you want to see@{ub}
+
+  - amiagent 0.5.0 or later (0.13.0 recommended), started with a TOKEN.
+    Aminet: comm/net/amiagent, or  amipkg install amiagent
+  - For VNC: AmiVNC (Aminet comm/tcp/AmiVNC.lha, or  amipkg install amivnc)
+    in SYS:Programs/AmiVNC/. amifleet68 starts it for you.
+
+@endnode
+
+@node Start "Getting started"
+
+Double-click the amifleet68 icon, or run it from a Shell.
+
+The first run shows one machine, @{i}This Amiga@{ui}, at 127.0.0.1: the
+agent on the machine you are sitting at. It will say @{b}token?@{ub} until you
+select it, click @{b}Edit...@{ub} and enter the TOKEN your agent was started
+with.
+
+To add other machines:
+
+  @{b}Scan network...@{ub}  sweeps x.y.z.1-254 for amiagent on port 7846 and adds
+                    every agent it finds. The network is filled in from
+                    this Amiga's own address. Takes about 25 seconds.
+
+  @{b}Add...@{ub}           name, host (name or address), port, token.
+
+The list is saved in ENV: and ENVARC:amifleet68.prefs, one machine per line:
+name, host, port and token, separated by TABs.
+
+@endnode
+
+@node Board "The fleet board"
+
+One row per machine, refreshed every five seconds:
+
+  @{b}State@{ub}   online, @{i}offline@{ui}, @{i}token?@{ui} (the agent refused our token),
+          or @{b}busy@{ub} while one of your commands runs there.
+  @{b}Ping@{ub}    how long the last report took, round trip.
+  @{b}Agent@{ub}   amiagent version.   @{b}CPU@{ub}, @{b}OS@{ub}   as the machine reports them.
+  @{b}Chip@{ub}, @{b}Fast@{ub}   free memory.
+
+A machine that drops off keeps its last report, in italics. It is only
+marked offline after two missed reports: the agent serves one connection
+at a time, so a single miss usually just means someone else was talking
+to it.
+
+Double-click a row for its @{" Details " link Details}. The toolbar buttons
+work on the selected row. Hold the pointer over a button for a hint.
+
+@endnode
+
+@node Details "Details window"
+
+@{b}Info@{ub}   the machine's full report: agent, Kickstart, CPU, FPU, memory,
+       mounted volumes, current directory.
+
+@{b}Shell@{ub}  type an AmigaDOS command and press Return. It runs on that machine
+       and the output comes back with the return code and the time taken.
+
+       The agent waits 20 seconds for a command. After that it answers
+       "still running" and gets on with other work, and @{b}Break@{ub} can send
+       the command Ctrl-C. (While it waits, the agent answers nothing
+       else - that is why the board shows @{b}busy@{ub}.)
+
+@{b}Files@{ub}  browse that machine's disks. Type a path and press Return,
+       double-click a drawer to open it, @{b}Parent@{ub} to go up.
+
+       @{b}Download...@{ub} saves the selected file on this Amiga. Large files
+       come in 64 KB pieces, so memory is no limit.
+       @{b}Upload...@{ub} sends a file from this Amiga into the drawer shown
+       (up to 16 MB).
+
+@endnode
+
+@node Screen "Screen window"
+
+Shows the machine's front screen, grabbed by the agent itself. It works on
+any screen: RTG, planar, a game, even a Guru.
+
+With @{b}Live@{ub} on, amifleet68 asks for a cheap checksum once a second and
+fetches the full picture only when it changed. A big truecolour screen
+takes a few seconds to fetch; the status line says how long.
+
+Click on the picture to click on that machine. Drag to drag. Type while the
+pointer is over the picture and the keys go to that machine, through its
+own keymap.
+
+Watching your own screen works, but every fetch changes the screen you are
+watching, so it never settles.
+
+@endnode
+
+@node VNC "VNC window"
+
+A VNC session to @{b}AmiVNC@{ub} on the selected machine.
+
+@{b}Connect@{ub} first tries the VNC port. If nothing answers, amifleet68 asks
+the agent to start AmiVNC (it sets the password and runs it in the
+background) and connects when it is up.
+
+  @{b}Fast (8-bit)@{ub}  AmiVNC's 256-colour mode on port 5901: a quarter of
+                the data. On by default. Off: full colour on port 5900.
+  @{b}Password@{ub}      default "amiga". AmiVNC keeps 7 characters at most.
+
+The mouse (with movement) and the keyboard go to the remote machine while
+the pointer is over the picture.
+
+amifleet68 asks for at most ten updates a second. The first version asked
+as fast as AmiVNC answered, and the first real session crashed the machine
+it was watching.
+
+@{b}Known:@{ub} on a PiStorm (Emu68, Picasso96) AmiVNC 1.0.0 ignores all pointer
+input from any VNC client. The picture and keys work. Use the
+@{" Screen window " link Screen} to click on that machine.
+
+@endnode
+
+@node ARexx "ARexx"
+
+amifleet68's port is @{b}AMIFLEET.1@{ub}. Besides MUI's standard commands
+(QUIT, HIDE, SHOW, ...):
+
+  MACHINES                     one line per machine:
+                               name state ms agent cpu os
+  STATE NAME/A                 online | offline | token | busy | unknown
+                               (RC 10: no such machine)
+  POLL                         ask every machine now
+  ADD NAME/A,HOST/A,PORT/N,TOKEN/K
+  DETAILS NAME/A               open that window on a machine
+  SCREEN NAME/A
+  VNC NAME/A
+  CONNECT, DISCONNECT          the VNC window's session
+
+Example:
+
+  /* who is up? */
+  options results
+  address 'AMIFLEET.1'
+  'MACHINES'
+  say RESULT
+
+@endnode
+
+@node Tips "Tips and limits"
+
+  - Close the Screen window when you do not need it: every fetch keeps
+    that machine's agent busy for a moment.
+  - The agent runs one command at a time. A second Run on the same
+    machine waits for the first.
+  - Links show as drawers in the Files list: that is how the agent
+    reports them.
+  - The window layout is remembered by MUI. MUI Settings... in the
+    Project menu adjusts fonts and looks.
+
+@endnode
+
+@node Security "Security"
+
+amiagent runs any command for anyone who can reach its port and knows the
+token. The token and all data travel unencrypted, VNC included.
+
+  - Always start amiagent with a TOKEN.
+  - Keep the fleet on a network you trust. Never forward port 7846 (or
+    AmiVNC's 5900/5901) from the Internet.
+
+amifleet68 stores the tokens in plain text in ENV: and ENVARC:.
+
+@endnode
+
+@node History "History"
+
+@{b}0.3.0@{ub} (30.9.2026)  first public release
+  - Screen window (agent HASH/SHOT) with click, drag and key forwarding
+  - VNC client for AmiVNC, with start-through-the-agent and paced updates
+  - Download and Upload in the Files page
+  - ARexx commands, tooltips, this manual
+
+@{b}0.1.0@{ub}  fleet board, details, shell with Break, file browser, LAN scan
+
+@endnode
+
+@node Author "Author & licence"
+
+amifleet68 (c) 2026 Thomas Luebker <thomas@amiga-imager.com>
+Licensed under the Apache License, Version 2.0.
+
+Source, issues and releases:
+  https://github.com/thomas-luebker/amifleet68
+
+Part of the amimcp family: amiagent is the daemon, amifleet the macOS
+console, amifleet68 the Amiga one.
+
+MUI is (c) Stefan Stuntz. AmiVNC is by Stephane Guillard.
+
+@endnode

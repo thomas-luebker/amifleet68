@@ -1,0 +1,49 @@
+Short:        MUI console for Amigas running amiagent
+Uploader:     thomas@amiga-imager.com (Thomas Luebker)
+Author:       thomas@amiga-imager.com (Thomas Luebker)
+Type:         comm/net
+Version:      0.3.0
+Architecture: m68k-amigaos >= 3.0.0
+Distribution: Aminet
+URL:          https://github.com/thomas-luebker/amifleet68
+Requires:     MUI 3.8+, a TCP/IP stack, amiagent on the machines you watch
+
+amifleet68 watches every Amiga on your network that runs amiagent, from
+one MUI window on another Amiga. It is the Amiga-native sibling of
+amifleet, the macOS console for the same fleet.
+
+ - Fleet board: one row per machine, refreshed every five seconds -
+   online state, round trip, agent version, CPU, OS, free Chip/Fast RAM.
+ - Details: the full system report, an AmigaDOS shell (with Break for a
+   command that hangs) and a file browser with Download and Upload.
+ - Screen: the machine's front screen, grabbed through the agent. Works on
+   any screen, even a Guru. Click, drag and type on the picture to drive
+   that machine.
+ - VNC: a client for AmiVNC. If AmiVNC is not running, amifleet68 starts
+   it through the agent first. 256-colour "Fast" mode for 68k viewers.
+ - Scan network: finds every agent on your /24.
+ - ARexx port AMIFLEET.1: MACHINES, STATE, POLL, ADD, DETAILS, SCREEN,
+   VNC, CONNECT, DISCONNECT.
+ - AmigaGuide manual (Help key or Project/Manual).
+
+Requirements
+------------
+ - AmigaOS 3.0+ (3.1 for planar drawing of remote screens), 68000 or
+   better (amifleet68.020 for 68020+)
+ - MUI 3.8+ (muimaster.library v19)          amipkg install mui38
+ - bsdsocket.library: Roadshow, AmiTCP, Miami
+ - On each watched machine: amiagent 0.5.0+  (Aminet comm/net/amiagent)
+ - Optional: AmiVNC for VNC                  (Aminet comm/tcp/AmiVNC.lha)
+
+Installation
+------------
+Drag the amifleet68 drawer wherever you like and double-click the
+program. The first run lists this machine's own agent; select it, click
+Edit and enter your agent's TOKEN. Then Scan network, or Add machines.
+
+Security
+--------
+amiagent runs any command for whoever knows its token, and the token and
+all traffic are unencrypted. Keep the fleet on a network you trust.
+
+Source (Apache 2.0) and issues: https://github.com/thomas-luebker/amifleet68

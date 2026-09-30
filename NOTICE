@@ -1,0 +1,8 @@
+amifleet68 — the amiagent fleet console for AmigaOS, in MUI
+Copyright 2026 Thomas Luebker <thomas@amiga-imager.com>
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+vendor/mui: MUI 3.8 developer-kit headers, (c) Stefan Stuntz, freely
+distributable developer material (see vendor/mui/README).
+vendor/cgx: CyberGraphX SDK interface files (see vendor/cgx/README.md).
