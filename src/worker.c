@@ -315,7 +315,7 @@ void request(struct Worker *wk, struct Job *j, UBYTE code,
  * File transfer
  * ------------------------------------------------------------------ */
 
-#define XFER_CHUNK (64UL * 1024UL)
+#define XFER_CHUNK (256UL * 1024UL)
 
 static void fail(struct Job *j, UBYTE st, const char *a, const char *b)
 {
@@ -569,6 +569,309 @@ bad:
     scopy(j->err, "malformed SHOT reply", sizeof j->err);
 }
 
+
+/* ------------------------------------------------------------------ *
+ * Copying between machines
+ *
+ * Same agent at both ends: one AmigaDOS "Copy ... ALL CLONE" on that
+ * machine - fastest, keeps dates and bits. Different machines: stream every
+ * file from the source's GETRANGE straight into the destination's PUT,
+ * 64 KB at a time, recursing through drawers here on the worker. A PUT frame
+ * is capped at 16 MiB, so bigger files go in 8 MB parts that the
+ * destination Joins.
+ *
+ * Deadlock trap: one agent serves ONE connection at a time. Holding a PUT
+ * open to machine B while asking machine B for GETRANGE would wait forever,
+ * which is why "same agent" must be detected by address (127.0.0.1 on this
+ * Amiga is the same agent as this Amiga's LAN address), not by name.
+ * ------------------------------------------------------------------ */
+
+#define COPY_CHUNK  (256UL * 1024UL)   /* 64 KB: ~150 KB/s, per-request cost dominated */
+#define COPY_PART   (8UL * 1024UL * 1024UL)
+#define COPY_SINGLE (15UL * 1024UL * 1024UL)
+
+static void wjoin(char *d, const char *dir, const char *name, ULONG n)
+{
+    ULONG l;
+    scopy(d, dir, n);
+    l = slen(d);
+    if (l && d[l - 1] != ':' && d[l - 1] != '/' && l + 1 < n) { d[l++] = '/'; d[l] = 0; }
+    scopy(d + l, name, n - l);
+}
+
+/* Append a quoted AmigaDOS argument ("*" escapes " and *). */
+static void qcat(char *d, const char *arg, ULONG n)
+{
+    ULONG l = slen(d);
+    if (l + 3 >= n) return;
+    d[l++] = ' '; d[l++] = '"';
+    while (*arg && l + 3 < n) {
+        if (*arg == '"' || *arg == '*') d[l++] = '*';
+        d[l++] = *arg++;
+    }
+    d[l++] = '"'; d[l] = 0;
+}
+
+static void cat(char *d, const char *s, ULONG n)
+{
+    ULONG l = slen(d);
+    scopy(d + l, s, n - l);
+}
+
+static void num(char *d, ULONG v, ULONG n)
+{
+    char t[12];
+    int i = 11;
+    t[i] = 0;
+    do { t[--i] = (char)('0' + v % 10); v /= 10; } while (v && i > 0);
+    cat(d, t + i, n);
+}
+
+/* EXEC on the agent described by t; the rc, or -1 (err in t->err). */
+static LONG wexec(struct Worker *wk, struct Job *t, const char *cmd, UWORD deadline)
+{
+    UBYTE pl[2 + 2048];
+    ULONG n = slen(cmd), i;
+    LONG rc = -1;
+    if (n > sizeof pl - 2) n = sizeof pl - 2;
+    pl[0] = (UBYTE)(deadline >> 8); pl[1] = (UBYTE)deadline;
+    for (i = 0; i < n; i++) pl[2 + i] = (UBYTE)cmd[i];
+    request(wk, t, CMD_EXEC, pl, n + 2, (ULONG)(deadline + 15) * 1000UL);
+    if (t->status == JS_OK && t->outlen >= 4) {
+        rc = (LONG)get_be32(t->out);
+        if (rc != 0) {      /* keep what the command said */
+            ULONG k, m = t->outlen - 4 < sizeof t->err - 1 ? t->outlen - 4 : sizeof t->err - 1;
+            for (k = 0; k < m; k++) t->err[k] = (char)(t->out[4 + k] < 32 ? ' ' : t->out[4 + k]);
+            t->err[m] = 0;
+        }
+    }
+    if (t->out) { FreeVec(t->out); t->out = NULL; }
+    return rc;
+}
+
+static void agent_of(struct Job *t, const char *host, UWORD port, const char *token)
+{
+    UBYTE *z = (UBYTE *)t; ULONG i;
+    for (i = 0; i < sizeof *t; i++) z[i] = 0;
+    scopy(t->host, host, sizeof t->host);
+    scopy(t->token, token, sizeof t->token);
+    t->port = port;
+}
+
+struct Copier {
+    struct Worker *wk;
+    struct CopySpec *cs;
+    struct Job src, dst;        /* agent templates */
+    UBYTE *buf;
+};
+
+static int stopped(struct Copier *c) { return c->cs->cancel || g_quitting; }
+
+static int fail_at(struct Copier *c, const char *what, const char *path, const char *why)
+{
+    struct CopySpec *cs = c->cs;
+    if (cs->err[0]) return 0;
+    scopy(cs->err, what, sizeof cs->err);
+    cat(cs->err, path, sizeof cs->err);
+    if (why && why[0]) { cat(cs->err, ": ", sizeof cs->err); cat(cs->err, why, sizeof cs->err); }
+    return 0;
+}
+
+/* One PUT of [off, off+len) of src into dst, streamed. */
+static int put_range(struct Copier *c, const char *src, const char *dst, ULONG off, ULONG len)
+{
+    struct Worker *wk = c->wk;
+    struct Job d = c->dst;
+    UBYTE h[AMI_HDRLEN + 2], pl[8 + 256];
+    ULONG n = slen(dst), sn = slen(src), done = 0, i, t0 = now_ms(wk);
+    LONG s;
+
+    if (sn > 256) sn = 256;
+    for (i = 0; i < sn; i++) pl[8 + i] = (UBYTE)src[i];
+    if ((s = agent_open(wk, &d, 20000)) < 0) return fail_at(c, "cannot reach the destination for ", dst, d.err);
+    h[0] = AMI_MAGIC0; h[1] = AMI_MAGIC1; h[2] = AMI_MAGIC2; h[3] = AMI_MAGIC3;
+    h[4] = CMD_PUT; h[5] = 0; h[6] = 0; h[7] = 0;
+    put_be32(h + 8, 2 + n + len);
+    h[12] = (UBYTE)(n >> 8); h[13] = (UBYTE)n;
+    if (!send_all(wk, s, h, sizeof h) || !send_all(wk, s, (const UBYTE *)dst, n)) {
+        CloseSocket(s);
+        return fail_at(c, "connection dropped writing ", dst, NULL);
+    }
+    while (done < len) {
+        struct Job g = c->src;
+        ULONG k = len - done > COPY_CHUNK ? COPY_CHUNK : len - done;
+        if (stopped(c)) { CloseSocket(s); return fail_at(c, "cancelled at ", src, NULL); }
+        put_be32(pl, off + done);
+        put_be32(pl + 4, k);
+        request(wk, &g, CMD_GETRANGE, pl, 8 + sn, 60000);
+        if (g.status != JS_OK || g.outlen != k) {
+            if (g.out) FreeVec(g.out);
+            CloseSocket(s);
+            return fail_at(c, "cannot read ", src, g.status != JS_OK ? g.err : "short read");
+        }
+        if (!send_all(wk, s, g.out, k)) {
+            FreeVec(g.out);
+            CloseSocket(s);
+            return fail_at(c, "connection dropped writing ", dst, NULL);
+        }
+        FreeVec(g.out);
+        done += k;
+        c->cs->bytes += k;
+    }
+    agent_finish(wk, &d, s, t0, 60000);
+    if (d.out) FreeVec(d.out);
+    if (d.status != JS_OK) return fail_at(c, "the destination refused ", dst, d.err);
+    return 1;
+}
+
+static int copy_file(struct Copier *c, const char *src, const char *dst, ULONG size)
+{
+    char cmd[2048], part[300];
+    ULONG parts, i;
+    int ok = 1;
+
+    if (size <= COPY_SINGLE) return put_range(c, src, dst, 0, size);
+
+    /* Big: 8 MB parts beside the target, Joined there, then deleted. */
+    parts = (size + COPY_PART - 1) / COPY_PART;
+    for (i = 0; i < parts && ok; i++) {
+        scopy(part, dst, sizeof part); cat(part, ".amifleet-part", sizeof part); num(part, i, sizeof part);
+        ok = put_range(c, src, part, i * COPY_PART,
+                       size - i * COPY_PART > COPY_PART ? COPY_PART : size - i * COPY_PART);
+    }
+    if (ok) {
+        struct Job d = c->dst;
+        scopy(cmd, "Join", sizeof cmd);
+        for (i = 0; i < parts; i++) {
+            scopy(part, dst, sizeof part); cat(part, ".amifleet-part", sizeof part); num(part, i, sizeof part);
+            qcat(cmd, part, sizeof cmd);
+        }
+        cat(cmd, " AS", sizeof cmd);
+        qcat(cmd, dst, sizeof cmd);
+        if (wexec(c->wk, &d, cmd, 600) != 0) ok = fail_at(c, "Join failed for ", dst, d.err);
+    }
+    {   /* the parts go either way */
+        struct Job d = c->dst;
+        scopy(cmd, "Delete", sizeof cmd);
+        scopy(part, dst, sizeof part); cat(part, ".amifleet-part#?", sizeof part);
+        qcat(cmd, part, sizeof cmd);
+        cat(cmd, " QUIET", sizeof cmd);
+        wexec(c->wk, &d, cmd, 60);
+    }
+    return ok;
+}
+
+/* A drawer: create it at the destination, then everything in it. */
+static int copy_item(struct Copier *c, const char *src, const char *dst, int isdir, ULONG size);
+
+static int copy_dir(struct Copier *c, const char *src, const char *dst)
+{
+    struct Job d = c->dst, g = c->src;
+    char cmd[400];
+    char *p;
+    int ok = 1;
+
+    scopy(cmd, "MakeDir", sizeof cmd);
+    qcat(cmd, dst, sizeof cmd);
+    wexec(c->wk, &d, cmd, 30);          /* fails harmlessly if it exists */
+
+    request(c->wk, &g, CMD_LIST, (const UBYTE *)src, slen(src), 60000);
+    if (g.status != JS_OK) { if (g.out) FreeVec(g.out); return fail_at(c, "cannot list ", src, g.err); }
+
+    /* Lines: type TAB size TAB prot TAB date TAB name */
+    for (p = (char *)g.out; ok && p && *p; ) {
+        char *nl = p, *f[5];
+        int k = 0;
+        char s2[300], d2[300];
+        while (*nl && *nl != '\n') nl++;
+        if (*nl) *nl++ = 0; else nl = NULL;
+        f[0] = p;
+        for (k = 1; k < 5; k++) {
+            char *q = f[k - 1];
+            while (*q && *q != '\t') q++;
+            if (!*q) break;
+            *q++ = 0;
+            f[k] = q;
+        }
+        if (k == 5) {
+            ULONG sz = 0;
+            char *q = f[1];
+            while (*q >= '0' && *q <= '9') sz = sz * 10 + (ULONG)(*q++ - '0');
+            wjoin(s2, src, f[4], sizeof s2);
+            wjoin(d2, dst, f[4], sizeof d2);
+            ok = copy_item(c, s2, d2, f[0][0] == 'D', sz);
+        }
+        p = nl;
+    }
+    FreeVec(g.out);
+    return ok;
+}
+
+static int copy_item(struct Copier *c, const char *src, const char *dst, int isdir, ULONG size)
+{
+    int ok;
+    if (stopped(c)) return fail_at(c, "cancelled at ", src, NULL);
+    {   /* name only, for the progress line */
+        const char *b = src, *q;
+        for (q = src; *q; q++) if (*q == '/' || *q == ':') b = q + 1;
+        scopy(c->cs->current, b, sizeof c->cs->current);
+    }
+    ok = isdir ? copy_dir(c, src, dst) : copy_file(c, src, dst, size);
+    if (ok && !isdir) c->cs->files++;
+    return ok;
+}
+
+static ULONG norm_addr(struct Worker *wk, ULONG a)
+{
+    if ((a >> 24) == 127) { ULONG me = (ULONG)gethostid(); return me ? me : a; }
+    return a;
+}
+
+static void job_copy(struct Worker *wk, struct Job *j)
+{
+    struct CopySpec *cs = j->cs;
+    struct Copier c;
+    UWORD i;
+    int ok = 1;
+    ULONG a, b;
+
+    SetSignal(0, SIGBREAKF_CTRL_C);         /* a stale cancel from last time */
+    c.wk = wk; c.cs = cs; c.buf = NULL;
+    agent_of(&c.src, cs->shost, cs->sport, cs->stoken);
+    agent_of(&c.dst, cs->dhost, cs->dport, cs->dtoken);
+    cs->err[0] = 0;
+    cs->files = 0; cs->bytes = 0;
+
+    a = resolve(wk, cs->shost);
+    b = resolve(wk, cs->dhost);
+    if (!a || !b) { scopy(cs->err, "unknown host", sizeof cs->err); j->status = JS_ERR; return; }
+    cs->same = norm_addr(wk, a) == norm_addr(wk, b) && cs->sport == cs->dport;
+
+    for (i = 0; i < cs->n && ok; i++) {
+        char src[300], dst[300];
+        wjoin(src, cs->srcdir, cs->name[i], sizeof src);
+        wjoin(dst, cs->dstdir, cs->name[i], sizeof dst);
+        if (cs->same) {
+            /* One Copy on that machine does it all, drawers included. */
+            struct Job t = c.src;
+            char cmd[800];
+            if (stopped(&c)) { ok = fail_at(&c, "cancelled at ", src, NULL); break; }
+            scopy(cs->current, cs->name[i], sizeof cs->current);
+            scopy(cmd, "Copy", sizeof cmd);
+            qcat(cmd, src, sizeof cmd);
+            cat(cmd, " TO", sizeof cmd);
+            qcat(cmd, dst, sizeof cmd);
+            cat(cmd, cs->isdir[i] ? " ALL CLONE QUIET" : " CLONE QUIET", sizeof cmd);
+            if (wexec(wk, &t, cmd, 3600) != 0) ok = fail_at(&c, "Copy failed for ", src, t.err);
+            else { cs->files++; cs->bytes += cs->size[i]; }
+        } else {
+            ok = copy_item(&c, src, dst, cs->isdir[i], cs->size[i]);
+        }
+    }
+    j->status = ok ? JS_OK : (cs->cancel ? JS_CANCEL : JS_ERR);
+    if (j->status == JS_CANCEL && !g_quitting) j->status = JS_ERR;   /* show the message */
+}
+
 static void run_job(struct Worker *wk, struct Job *j)
 {
     j->ms = 0; j->rc = 0;
@@ -615,6 +918,12 @@ static void run_job(struct Worker *wk, struct Job *j)
         break;
     case JOB_PUT:
         job_put(wk, j);
+        break;
+    case JOB_COPY:
+        job_copy(wk, j);
+        break;
+    case JOB_FOP:
+        job_exec(wk, j);
         break;
     case JOB_HOSTID:
         j->scan_net = (ULONG)gethostid();
@@ -693,7 +1002,7 @@ static void worker_main(void)
     ReplyMsg(&quit->msg);
 }
 
-int worker_start(struct Worker *wk, const char *name)
+int worker_start(struct Worker *wk, const char *name, ULONG stack)
 {
     BYTE sig = AllocSignal(-1);
     if (sig < 0) return 0;
@@ -708,7 +1017,7 @@ int worker_start(struct Worker *wk, const char *name)
     wk->proc = CreateNewProcTags(
         NP_Entry,     (ULONG)worker_main,
         NP_Name,      (ULONG)name,
-        NP_StackSize, 16384,
+        NP_StackSize, stack,
         NP_Priority,  0,
         NP_Output,    0,
         NP_Input,     0,

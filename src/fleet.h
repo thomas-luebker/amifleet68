@@ -20,7 +20,7 @@
 #include <dos/dosextens.h>
 #include <exec/semaphores.h>
 
-#define AMIFLEET_VERSION "0.3.0"
+#define AMIFLEET_VERSION "0.4.0"
 #define AMIFLEET_VERDATE "30.9.2026"
 
 #define AGENT_PORT 7846
@@ -42,7 +42,9 @@ enum {
     JOB_INPUT,      /* INPUT; binary payload in arg[0..arglen) */
     JOB_VNC,        /* a whole RFB session; see struct VncSession */
     JOB_GET,        /* download arg (remote) -> local, GETRANGE chunks */
-    JOB_PUT         /* upload local -> arg (remote), one streamed PUT */
+    JOB_PUT,        /* upload local -> arg (remote), one streamed PUT */
+    JOB_COPY,       /* copy items between two machines; see struct CopySpec */
+    JOB_FOP         /* a file operation (Delete/Rename/MakeDir) via EXEC */
 };
 
 /* Job outcome. */
@@ -70,6 +72,7 @@ struct Job {
     char   token[64];
     char   arg[512];        /* command line / path / hello text */
     UWORD  arglen;          /* non-zero: arg is binary, this long */
+    UBYTE  tag;             /* GUI routing: which pane a LIST/FOP belongs to */
     UWORD  deadline;        /* EXEC deadline, seconds */
     LONG   rc;              /* EXEC return code */
     ULONG  ms;              /* round trip, milliseconds */
@@ -84,12 +87,39 @@ struct Job {
     char   local[256];
     ULONG  total;           /* bytes; GET: from the listing (0 = unknown) */
     volatile ULONG done;    /* progress, read by the GUI */
+    /* JOB_COPY */
+    struct CopySpec *cs;
     /* JOB_VNC */
     struct VncSession *vnc;
     /* JOB_SCAN / JOB_HOSTID */
     ULONG  scan_net;        /* a.b.c.0 as a host-order ULONG */
     volatile ULONG scan_done;  /* hosts probed so far (read by the GUI) */
     UBYTE  scan_hit[256];
+};
+
+/* ------------------------------------------------------------------ *
+ * A copy between two machines (or within one). Owned by the GUI; the worker
+ * writes only the progress fields and err.
+ * ------------------------------------------------------------------ */
+
+#define COPY_MAX 64
+
+struct CopySpec {
+    char  shost[64], stoken[64];
+    UWORD sport;
+    char  dhost[64], dtoken[64];
+    UWORD dport;
+    char  srcdir[256], dstdir[256];
+    UWORD n;
+    char  name[COPY_MAX][108];
+    UBYTE isdir[COPY_MAX];
+    ULONG size[COPY_MAX];
+
+    volatile ULONG files, bytes;    /* done so far */
+    volatile UBYTE cancel;
+    UBYTE same;                     /* worker: both ends are one agent */
+    char  current[108];
+    char  err[160];
 };
 
 /* ------------------------------------------------------------------ *
@@ -153,7 +183,7 @@ struct Worker {
 };
 
 /* worker.c */
-int  worker_start(struct Worker *wk, const char *name);   /* 1 = running */
+int  worker_start(struct Worker *wk, const char *name, ULONG stack);   /* 1 = running */
 
 /* Set when the app is quitting: workers answer JS_CANCEL without touching
  * the network, and blocking waits give up on the next Ctrl-C. */

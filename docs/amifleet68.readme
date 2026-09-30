@@ -2,7 +2,7 @@ Short:        MUI console for Amigas running amiagent
 Uploader:     thomas@amiga-imager.com (Thomas Luebker)
 Author:       thomas@amiga-imager.com (Thomas Luebker)
 Type:         comm/net
-Version:      0.3.0
+Version:      0.4.0
 Architecture: m68k-amigaos >= 3.0.0
 Distribution: Aminet
 URL:          https://github.com/thomas-luebker/amifleet68
@@ -21,9 +21,13 @@ amifleet, the macOS console for the same fleet.
    that machine.
  - VNC: a client for AmiVNC. If AmiVNC is not running, amifleet68 starts
    it through the agent first. 256-colour "Fast" mode for 68k viewers.
+ - Copy files: two panes, each on any machine - copy files and whole
+   drawers between Amigas (or within one), Delete, Rename, MakeDir.
+   Every path field has a drive popup with that machine's volumes,
+   assigns and devices.
  - Scan network: finds every agent on your /24.
  - ARexx port AMIFLEET.1: MACHINES, STATE, POLL, ADD, DETAILS, SCREEN,
-   VNC, CONNECT, DISCONNECT.
+   VNC, COPYFILES, CONNECT, DISCONNECT.
  - AmigaGuide manual (Help key or Project/Manual).
 
 Requirements

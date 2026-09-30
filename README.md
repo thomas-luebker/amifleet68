@@ -32,6 +32,15 @@ macOS/SwiftUI app): it speaks the amimcp wire protocol
   uses AmiVNC's `-a` BGR233 mode on port 5901 (1 byte/pixel); otherwise
   full colour on 5900. Mouse (with motion) and keyboard (X keysyms via the
   local keymap) are forwarded.
+- **Copy files** — two panes, each on any machine of the board (the local
+  one included, through its own agent). Copy files and whole drawers either
+  way, Delete, Rename, MakeDir; progress and Cancel. Same machine: one
+  AmigaDOS `Copy ALL CLONE` there. Between machines: streamed agent to agent
+  (`GETRANGE` → `PUT`, 256 KB pieces; files over 15 MB in 8 MB parts that
+  are `Join`ed at the destination). 21 MB A4000 → PiStorm: 69.7 s, every
+  file SHA-256-identical.
+- **Drive popups** — every path field is a MUI Popobject listing that
+  machine's volumes, assigns and devices (`Assign LIST` there, cached).
 - **Scan network** — sweeps `x.y.z.1–254` for port 7846 (16 parallel
   non-blocking connects per batch, ~25 s for a /24), `PING`s every hit with
   the given token, and adds the agents it finds. The network is pre-filled
@@ -48,6 +57,7 @@ macOS/SwiftUI app): it speaks the amimcp wire protocol
   | `ADD NAME/A,HOST/A,PORT/N,TOKEN/K` | add a machine |
   | `DETAILS`, `SCREEN`, `VNC` `NAME/A` | open that window on a machine |
   | `CONNECT` / `DISCONNECT` | the VNC window's session |
+  | `COPYFILES` | open the Copy files window |
 
   ```rexx
   /* who is up? */
@@ -67,6 +77,25 @@ this Amiga's own agent (`127.0.0.1`).
   v19 — `amipkg install mui38`), and a running TCP/IP stack
   (`bsdsocket.library` v4: Roadshow, AmiTCP, Miami).
 - `amiagent` on each machine you want to see.
+
+## MUI style guide
+
+Checked against the guide in the MUI 3.8 developer kit and the Amiga UI
+Style Guide:
+
+- **Fits 640×256 topaz/8.** `amifleet68 PALTEST` opens every window on a
+  real 640×256 PAL screen; board, Details, Copy, Screen and VNC all fit
+  without MUI shrinking fonts (verified on the A4000). The toolbar is two
+  rows because one was ~720 px wide. PALTEST keeps its own window geometry
+  (a separate application base), so a test never shrinks your layout.
+- **Popups for choices**, ASL for local files.
+- **Keyboard**: every button has a key, labelled string gadgets have
+  control chars, everything is in the Tab cycle chain, the board list is
+  the default object (cursor keys work at once). No menu shortcut on
+  Amiga-C/V/X — Intuition would steal them from string gadgets.
+- **Menus**: Project (…, Quit last), Fleet, Windows, Settings (MUI).
+- **Help** on any window opens its node of the AmigaGuide; the screen title
+  shows the program; iconify uses the program's own icon.
 
 ## Things the fleet taught this app
 
