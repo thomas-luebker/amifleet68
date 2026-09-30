@@ -175,8 +175,10 @@ cc -o /tmp/des_test tests/des_test.c src/des.c && /tmp/des_test   # DES vs FIPS 
 
 ## Download
 
-Releases, with the `.lha` for the Amiga:
-<https://github.com/thomas-luebker/amifleet68/releases>
+- On an Amiga with amipkg: `amipkg install amifleet68` (pulls in MUI 3.8).
+- Aminet: `comm/net/amifleet68-<version>.lha` (from 0.5.0, once moderated).
+- Releases, with the `.lha` for the Amiga:
+  <https://github.com/thomas-luebker/amifleet68/releases>
 
 The archive carries the program icon as a GlowIcon (with a clean 4-colour
 image for OS 3.1 in the same file) and, in `Classic icon/`, the same icon

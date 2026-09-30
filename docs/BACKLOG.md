@@ -61,8 +61,10 @@ Loki vault note `20 - Private/Retro Computing/Projects/amifleet68.md`.
 - [x] 0.5.0 — Move, overwrite question, big uploads, shell history, remembered
       panes, AmigaOS UI Style Guide pass (NTSCTEST 640x200 verified) (2026-09-30)
 - [x] amimcp fixes pushed; **amiagent 0.13.1 released** (GitHub, catalog, Aminet FTP).
-- [ ] **Fleet rollout of amiagent 0.13.1** — needs the user's OK (restarts agents).
-- [ ] **Mac amifleet release** — needs an `amifleet-notary` keychain profile.
+- [ ] **Fleet rollout of amiagent 0.13.1** — Amigo done; A4000 installed but
+      unreachable after its restart (user to check); PiStorm was off, still 0.13.0.
+- [x] Mac amifleet: not a standalone release — it ships inside the next Amiga
+      Imager (user, 2026-09-30); the VNC pacing fix is pushed to amimcp.
 - [x] amimcp fixes committed locally, NOT pushed/released: Mac amifleet VNC
       pacing (3a7007f; ~24,000 → ~6 req/s against an eager server) and
       amiagent LIST soft links as `L` (58e7252; agent 0.13.1 unreleased)
