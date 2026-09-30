@@ -1,5 +1,5 @@
 @database amifleet68.guide
-@$VER: amifleet68.guide 0.5.0 (1.10.2026)
+@$VER: amifleet68.guide 0.5.0 (30.9.2026)
 @author "Thomas Luebker"
 @(c) "2026 Thomas Luebker - Apache License 2.0"
 @wordwrap
@@ -285,7 +285,7 @@ amifleet68 stores the tokens in plain text in ENV: and ENVARC:.
 
 @node History "History"
 
-@{b}0.5.0@{ub} (1.10.2026)
+@{b}0.5.0@{ub} (30.9.2026)
   - Move in the copier; it asks before replacing, naming what is there
   - Uploads of any size (big files in parts, joined on the Amiga)
   - Shell history in a popup; the copier remembers its panes

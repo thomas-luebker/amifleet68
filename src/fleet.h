@@ -21,7 +21,7 @@
 #include <exec/semaphores.h>
 
 #define AMIFLEET_VERSION "0.5.0"
-#define AMIFLEET_VERDATE "1.10.2026"
+#define AMIFLEET_VERDATE "30.9.2026"
 
 #define AGENT_PORT 7846
 

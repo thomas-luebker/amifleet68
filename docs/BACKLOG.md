@@ -50,7 +50,7 @@ Loki vault note `20 - Private/Retro Computing/Projects/amifleet68.md`.
 ## Done
 
 - [x] 0.5.0 — Move, overwrite question, big uploads, shell history, remembered
-      panes, AmigaOS UI Style Guide pass (NTSCTEST 640x200 verified) (2026-10-01)
+      panes, AmigaOS UI Style Guide pass (NTSCTEST 640x200 verified) (2026-09-30)
 - [x] amimcp fixes committed locally, NOT pushed/released: Mac amifleet VNC
       pacing (3a7007f; ~24,000 → ~6 req/s against an eager server) and
       amiagent LIST soft links as `L` (58e7252; agent 0.13.1 unreleased)
