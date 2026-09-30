@@ -43,13 +43,15 @@ Loki vault note `20 - Private/Retro Computing/Projects/amifleet68.md`.
 - [x] amipkg / amiga-pkg catalog entry: PR thomas-luebker/amiga-pkg#6
       (0.5.0, GitHub URL; our entry verifies in CI — the check is red only
       from 20 other entries' upstream drift, as on main since 2026-08).
-- [ ] **Merge #6 and publish/sign the catalog index** (maintainer step).
+- [x] #6 merged; index refreshed (17 upstream updates) + signed + published;
+      a recipe fixed the doubled drawer; `amipkg install amifleet68` verified on the Amigo.
 - [ ] **Switch the catalog URL to Aminet** (plain HTTP, for Amigas without
       AmiSSL) once `comm/net/amifleet68-0.5.0.lha` clears moderation.
 - [x] Aminet: `amifleet68-0.5.0.lha` + `.readme` uploaded by FTP to
       `main.aminet.net/new` (226), 2026-09-30 — the web form was still down.
       Every later version by FTP needs a removal mail for the previous one.
-- [ ] Fix the 20 drifted catalog entries (`scripts/refresh-and-publish.sh`, maintainer).
+- [x] 17 drifted catalog entries refreshed; 5 still unreachable upstream
+      (ami2ha, amiblockside, fat95, lumiftp, lumiweather) need new URLs.
 - [ ] Install on the iPad node once it is up:
       `tools/install_fleet.py dist/amifleet68-<ver>.lha iPad`.
 - [x] 0.5.0 link posted in the imp3 chat (2026-09-30, 22:38).
@@ -58,8 +60,9 @@ Loki vault note `20 - Private/Retro Computing/Projects/amifleet68.md`.
 
 - [x] 0.5.0 — Move, overwrite question, big uploads, shell history, remembered
       panes, AmigaOS UI Style Guide pass (NTSCTEST 640x200 verified) (2026-09-30)
-- [ ] **amimcp: push + release** the two fixes below (Mac amifleet build;
-      amiagent 0.13.1 release and fleet redeploy, which restarts agents).
+- [x] amimcp fixes pushed; **amiagent 0.13.1 released** (GitHub, catalog, Aminet FTP).
+- [ ] **Fleet rollout of amiagent 0.13.1** — needs the user's OK (restarts agents).
+- [ ] **Mac amifleet release** — needs an `amifleet-notary` keychain profile.
 - [x] amimcp fixes committed locally, NOT pushed/released: Mac amifleet VNC
       pacing (3a7007f; ~24,000 → ~6 req/s against an eager server) and
       amiagent LIST soft links as `L` (58e7252; agent 0.13.1 unreleased)
