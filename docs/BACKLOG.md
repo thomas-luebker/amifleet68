@@ -40,17 +40,26 @@ Loki vault note `20 - Private/Retro Computing/Projects/amifleet68.md`.
 
 ## Distribution
 
-- [ ] amipkg / amiga-pkg catalog entry (deps: mui38, a TCP stack).
-- [ ] Aminet `comm/net` — `.readme` in `docs/`; the upload form was down, FTP
-      means a removal mail per later version (see the `amiga-release` skill).
+- [x] amipkg / amiga-pkg catalog entry: PR thomas-luebker/amiga-pkg#6
+      (0.5.0, GitHub URL; our entry verifies in CI — the check is red only
+      from 20 other entries' upstream drift, as on main since 2026-08).
+- [ ] **Merge #6 and publish/sign the catalog index** (maintainer step).
+- [ ] **Switch the catalog URL to Aminet** (plain HTTP, for Amigas without
+      AmiSSL) once `comm/net/amifleet68-0.5.0.lha` clears moderation.
+- [x] Aminet: `amifleet68-0.5.0.lha` + `.readme` uploaded by FTP to
+      `main.aminet.net/new` (226), 2026-09-30 — the web form was still down.
+      Every later version by FTP needs a removal mail for the previous one.
+- [ ] Fix the 20 drifted catalog entries (`scripts/refresh-and-publish.sh`, maintainer).
 - [ ] Install on the iPad node once it is up:
       `tools/install_fleet.py dist/amifleet68-<ver>.lha iPad`.
-- [ ] Post the current release link in the imp3 chat (0.4.0's is there).
+- [x] 0.5.0 link posted in the imp3 chat (2026-09-30, 22:38).
 
 ## Done
 
 - [x] 0.5.0 — Move, overwrite question, big uploads, shell history, remembered
       panes, AmigaOS UI Style Guide pass (NTSCTEST 640x200 verified) (2026-09-30)
+- [ ] **amimcp: push + release** the two fixes below (Mac amifleet build;
+      amiagent 0.13.1 release and fleet redeploy, which restarts agents).
 - [x] amimcp fixes committed locally, NOT pushed/released: Mac amifleet VNC
       pacing (3a7007f; ~24,000 → ~6 req/s against an eager server) and
       amiagent LIST soft links as `L` (58e7252; agent 0.13.1 unreleased)
