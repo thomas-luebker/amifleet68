@@ -77,7 +77,15 @@ once, so it ran ~37 round trips a second; the agent there starved first,
 then the machine went. `tests/fake_amivnc.py --eager` reproduces the loop
 (~100/s from an A4000). The client now waits ≥100 ms between requests
 (250 ms after an empty update): ~4–5/s against the same server, with input
-still sent instantly. Not yet re-tested on the PiStorm.
+still sent instantly. **Re-tested on the rebooted PiStorm the same evening:**
+two minutes of VNC including the double-click, its agent answering every
+5-second probe in ~0.01 s — no crash.
+
+**AmiVNC ignores the mouse on the PiStorm.** AmiVNC 1.0.0 on the PiStorm
+(Emu68, Picasso96) does not move the pointer for *any* RFB client — a
+minimal Python client sending jumps, 4-pixel steps and button presses moved
+it 0 pixels, while amiagent's own clicks move it fine. Picture and keys
+work; use the Screen window to click there.
 
 **MUI 3.8 `MUIM_Draw` flags.** On muimaster 19.35, `MUIM_Draw` arrives with
 `flags == 0` for both `MUI_Redraw(MADF_DRAWOBJECT)` and `MADF_DRAWUPDATE`.
@@ -116,6 +124,14 @@ Point a VNC window at the Mac's address to use it.
 ```sh
 cc -o /tmp/des_test tests/des_test.c src/des.c && /tmp/des_test   # DES vs FIPS 46
 ```
+
+## Download
+
+Releases, with the `.lha` for the Amiga:
+<https://github.com/thomas-luebker/amifleet68/releases>
+
+`./release.sh` builds `dist/amifleet68-<version>.lha` (Aminet-style drawer
+with icons, both CPU builds, the AmigaGuide manual) and its `.readme`.
 
 ## Build
 
