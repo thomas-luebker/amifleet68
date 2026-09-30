@@ -6,7 +6,8 @@ their amiagent, and put it in their WBDock.
     python3 tools/install_fleet.py dist/amifleet68-0.4.1.lha A4000 --dest Porgrams:
 
 Per machine:
-  1. quits a running amifleet68 (ARexx AMIFLEET.1), so the files can be replaced;
+  1. quits a running amifleet68 (ARexx AMIFLEET68.1, or AMIFLEET.1 before
+     0.5.0), so the files can be replaced;
   2. unpacks the archive with the machine's own C:lha into DEST (default
      SYS:Programs/), which yields DEST/amifleet68/ + its drawer icon;
   3. writes ENVARC:+ENV:amifleet68.prefs if the machine has none: the whole
@@ -81,9 +82,12 @@ def install(node, lha, dest):
     prog = target + "amifleet68/amifleet68"
     print(f"== {node}: {name} -> {target}amifleet68/")
 
-    running = "AMIFLEET.1" in a.rexx_ports()
+    # The ARexx port was AMIFLEET.1 up to 0.4.1 and AMIFLEET68.1 since 0.5.0.
+    ports = [p for p in ("AMIFLEET68.1", "AMIFLEET.1") if p in a.rexx_ports()]
+    running = bool(ports)
+    for p in ports:
+        rexx(a, p, "QUIT")
     if running:
-        rexx(a, "AMIFLEET.1", "QUIT")
         time.sleep(3)
 
     a.write_file("RAM:" + name, open(lha, "rb").read())
