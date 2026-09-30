@@ -1,12 +1,12 @@
 @database amifleet68.guide
-@$VER: amifleet68.guide 0.4.0 (30.9.2026)
+@$VER: amifleet68.guide 0.4.1 (30.9.2026)
 @author "Thomas Luebker"
 @(c) "2026 Thomas Luebker - Apache License 2.0"
 @wordwrap
 
 @node Main "amifleet68"
 
-@{b}amifleet68 0.4.0@{ub} - the amiagent fleet console, native on the Amiga
+@{b}amifleet68 0.4.1@{ub} - the amiagent fleet console, native on the Amiga
 
 Watch every Amiga running amiagent from one window, run AmigaDOS commands
 on them, move files, see and drive their screens, and connect to AmiVNC.
@@ -53,6 +53,9 @@ server to install and no PC or Mac in the loop.
 @node Start "Getting started"
 
 Double-click the amifleet68 icon, or run it from a Shell.
+
+Prefer plain icons? The drawer "Classic icon" holds the same icon
+without its GlowIcon part - copy it over amifleet68.info.
 
 The first run shows one machine, @{i}This Amiga@{ui}, at 127.0.0.1: the
 agent on the machine you are sitting at. It will say @{b}token?@{ub} until you
@@ -262,6 +265,10 @@ amifleet68 stores the tokens in plain text in ENV: and ENVARC:.
 @endnode
 
 @node History "History"
+
+@{b}0.4.1@{ub} (30.9.2026)
+  - A new, shaded GlowIcon, the same one in the archive and in the dock
+  - A plain (non-GlowIcon) version in the "Classic icon" drawer
 
 @{b}0.4.0@{ub} (30.9.2026)
   - Copy files window: two panes, any machine each; copy files and

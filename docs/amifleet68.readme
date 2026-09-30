@@ -2,7 +2,7 @@ Short:        MUI console for Amigas running amiagent
 Uploader:     thomas@amiga-imager.com (Thomas Luebker)
 Author:       thomas@amiga-imager.com (Thomas Luebker)
 Type:         comm/net
-Version:      0.4.0
+Version:      0.4.1
 Architecture: m68k-amigaos >= 3.0.0
 Distribution: Aminet
 URL:          https://github.com/thomas-luebker/amifleet68
@@ -42,7 +42,8 @@ Requirements
 Installation
 ------------
 Drag the amifleet68 drawer wherever you like and double-click the
-program. The first run lists this machine's own agent; select it, click
+program. Prefer plain icons? "Classic icon" holds the same icon without
+its GlowIcon part - copy it over amifleet68.info. The first run lists this machine's own agent; select it, click
 Edit and enter your agent's TOKEN. Then Scan network, or Add machines.
 
 Security

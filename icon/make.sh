@@ -2,7 +2,12 @@
 # make.sh - rebuild the release icons (classic 4-colour planar + GlowIcon)
 # from the checked-in PNGs:
 #
-#   amifleet68.info  TOOL     amifleet68.png  (draw.py)
+#   amifleet68.info  TOOL     amifleet68.png  (draw.py)  the canonical app
+#                                             icon: classic planar + GlowIcon
+#   amifleet68-classic.info TOOL  amifleet68-classic.png + -classic-sel.png
+#                                             (draw_classic.py)  the same icon
+#                                             as plain classic images only, no
+#                                             GlowIcon, hand-tuned 4 colours
 #   drawer.info      DRAWER   drawer.png      (draw_extra.py)  the archive's
 #                                             top-level amifleet68 drawer
 #   guide.info       PROJECT  guide.png       (draw_extra.py)  amifleet68.guide,
@@ -20,12 +25,19 @@ MKICON="${MKICON:-$P/skills/amiga-icon/scripts/mkicon.py}"
 
 if [ "$1" = "--redraw" ]; then
     python3 draw.py
+    python3 draw_classic.py     # derives from amifleet68.png: after draw.py
     python3 draw_extra.py
 fi
 
 # No --selected: mkicon synthesises the classic selected image (plane
 # complement, as GADGHCOMP would look on 3.1) and a glow halo for 3.5+.
 python3 "$MKICON" amifleet68.info --normal amifleet68.png \
+    --type tool --stack 16384
+
+# The classic-only variant: no FORM ICON appendix at all, and a hand-drawn
+# selected image (so the gadget swaps images rather than complementing).
+python3 "$MKICON" amifleet68-classic.info --no-glow \
+    --normal amifleet68-classic.png --selected amifleet68-classic-sel.png \
     --type tool --stack 16384
 
 # Drawer: mkicon writes the DrawerData block Workbench needs to open it, with

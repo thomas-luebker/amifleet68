@@ -159,6 +159,17 @@ cc -o /tmp/des_test tests/des_test.c src/des.c && /tmp/des_test   # DES vs FIPS 
 Releases, with the `.lha` for the Amiga:
 <https://github.com/thomas-luebker/amifleet68/releases>
 
+The archive carries the program icon as a GlowIcon (with a clean 4-colour
+image for OS 3.1 in the same file) and, in `Classic icon/`, the same icon
+without its GlowIcon part - copy it over `amifleet68.info` if you prefer plain
+icons.
+
+`tools/install_fleet.py <lha> <node>...` installs a release on fleet Amigas
+through their agents: unpacks it with the machine's own `lha` (default
+`SYS:Programs/`, `--dest` to change), writes the fleet list if the machine
+has none, and adds amifleet68 to WBDock (config backed up once, entry added
+live over its ARexx port).
+
 `./release.sh` builds `dist/amifleet68-<version>.lha` (Aminet-style drawer
 with icons, both CPU builds, the AmigaGuide manual) and its `.readme`.
 

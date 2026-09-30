@@ -11,7 +11,7 @@ cd "$(dirname "$0")"
 VER=$(sed -n 's/^#define AMIFLEET_VERSION "\(.*\)"/\1/p' src/fleet.h)
 LHACLI=${LHACLI:-$HOME/Development/AmigaDiskKit/.build/arm64-apple-macosx/release/AmigaDiskCLI}
 [ -x "$LHACLI" ] || { echo "AmigaDiskCLI missing: (cd ~/Development/AmigaDiskKit && swift build -c release)"; exit 1; }
-for f in icon/amifleet68.info icon/drawer.info icon/guide.info docs/amifleet68.guide docs/amifleet68.readme LICENSE; do
+for f in icon/amifleet68.info icon/amifleet68-classic.info icon/drawer.info icon/guide.info docs/amifleet68.guide docs/amifleet68.readme LICENSE; do
     [ -f "$f" ] || { echo "missing $f"; exit 1; }
 done
 
@@ -36,6 +36,13 @@ cp icon/guide.info "$D/amifleet68.guide.info"
 cp docs/amifleet68.readme "$D/README"
 cp LICENSE "$D/LICENSE"
 cp icon/drawer.info "$STAGE/amifleet68.info"
+# The same icon without its GlowIcon part, for OS 3.1 or plain-icon fans:
+# copy "Classic icon/amifleet68.info" over the program's own to use it.
+mkdir -p "$D/Classic icon"
+cp icon/amifleet68-classic.info "$D/Classic icon/amifleet68.info"
+cp icon/drawer.info "$D/Classic icon.info"
+# The classic file must really carry no GlowIcon (IFF FORM ICON) part.
+if grep -q "FORM" "$D/Classic icon/amifleet68.info"; then echo "classic icon contains a GlowIcon"; exit 1; fi
 
 OUT="dist/amifleet68-$VER.lha"
 rm -f "$OUT"
